@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Set, Dict, Any
 from datetime import datetime
-
 from docxtpl import DocxTemplate
 
 BASE_DIR = Path(__file__).resolve().parent
