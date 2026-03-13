@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta, datetime
-from typing import Dict, Any, List, Set
+from typing import Dict, Any, List, Set, Callable, Optional
 
 
 # -------------------------
@@ -27,6 +27,7 @@ def euro_format(x: float) -> str:
 
 
 def normalize_vorsteuer(value: str) -> str:
+    # Regel: JA -> "" ; NEIN -> "nicht"
     v = (value or "").strip().lower()
     if v in {"ja", "yes", "y", "true"}:
         return ""
@@ -49,6 +50,16 @@ def normalize_pdf_text(text: str) -> str:
     return t
 
 
+def join_lines(s: str) -> str:
+    """Mehrzeiligen Text zu einer sauberen Zeile machen."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"\s*\n\s*", " ", s)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    return s
+
+
 # -------------------------
 # Pattern Engine (Fallbacks)
 # -------------------------
@@ -57,17 +68,23 @@ class MultiPattern:
     patterns: List[str]
     flags: int = re.IGNORECASE | re.MULTILINE
     group: int = 1
+    postprocess: Optional[Callable[[str], str]] = None
 
     def find(self, text: str) -> str:
         for rx in self.patterns:
             m = re.search(rx, text, self.flags)
             if m:
-                return (m.group(self.group) or "").strip()
+                val = (m.group(self.group) or "").strip()
+                if self.postprocess:
+                    val = self.postprocess(val)
+                return val
         return ""
 
 
 PATTERNS: Dict[str, MultiPattern] = {
+    # -------------------
     # Mandant
+    # -------------------
     "MANDANT_VORNAME": MultiPattern([
         r"Anspruchsteller\s*\n(?:Herr|Frau)\s+([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+",
         r"\n(?:Herr|Frau)\s+([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+\n",
@@ -87,7 +104,9 @@ PATTERNS: Dict[str, MultiPattern] = {
         r"Adresse\s*\n[^\n]+\n(\d{5}\s+[^\n]+)",
     ]),
 
+    # -------------------
     # Unfall
+    # -------------------
     "UNFALL_DATUM": MultiPattern([
         r"Unfall\s*Datum\s*(\d{2}\.\d{2}\.\d{4})",
         r"Unfalldatum\s*[:\-]?\s*(\d{2}\.\d{2}\.\d{4})",
@@ -104,10 +123,12 @@ PATTERNS: Dict[str, MultiPattern] = {
         r"(?:Unfallort|Unfallstelle|Ort)\s*\n(?:[^\n]+,\s*)?([A-Za-zÄÖÜäöüß\-\(\) ]{3,})",
     ]),
 
+    # -------------------
     # Aktenzeichen / Fahrzeug
+    # -------------------
     "AKTENZEICHEN": MultiPattern([
         r"Aktenzeichen\s+([A-Z0-9\-\/]+)",
-        r"GA\-[A-Z0-9\-\/]+",  # fallback, wenn nur im Text vorkommt
+        r"\bGA\-[A-Z0-9\-\/]+\b",
     ]),
     "KENNZEICHEN": MultiPattern([
         r"Amtliches\s+Kennzeichen\s+([A-ZÄÖÜ]{1,3}\s*[A-Z]{1,3}\s*\d{1,4})",
@@ -118,36 +139,46 @@ PATTERNS: Dict[str, MultiPattern] = {
         r"Fahrzeugtyp\s*[:\-]?\s*([^\n]+)",
     ]),
 
-    # Versicherung
-    "VERSICHERUNG": MultiPattern([
-        r"\bVersicherung\b\s*\n([^\n]+)",
-        r"\bHaftpflichtversicherung\b\s*\n([^\n]+)",
-        r"\bVersicherer\b\s*[:\-]?\s*([^\n]+)",
-    ]),
+    # -------------------
+    # Versicherung (MEHRZEILIG!)
+    # -------------------
+    "VERSICHERUNG": MultiPattern(
+        patterns=[
+            r"\bVersicherung\b\s*\n([\s\S]{5,200}?)\n(?:Straße|PLZ\s*Ort|Schaden|Schadennummer|Versicherungs\-Nr|$)",
+            r"\bHaftpflichtversicherung\b\s*\n([\s\S]{5,200}?)\n(?:Straße|PLZ\s*Ort|Schaden|Schadennummer|Versicherungs\-Nr|$)",
+            r"\bVersicherer\b\s*[:\-]?\s*([\s\S]{5,200}?)\n(?:Straße|PLZ\s*Ort|Schaden|Schadennummer|Versicherungs\-Nr|$)",
+        ],
+        group=1,
+        postprocess=join_lines
+    ),
     "VER_STRASSE": MultiPattern([
         r"\bVersicherung\b\s*\n[^\n]+\n([^\n]+)\n\d{5}\s+[^\n]+",
         r"\bHaftpflichtversicherung\b\s*\n[^\n]+\n([^\n]+)\n\d{5}\s+[^\n]+",
         r"Straße\s+([^\n]+)\nPLZ\s*Ort",
-    ]),
+    ], postprocess=join_lines),
     "VER_ORT": MultiPattern([
         r"\bVersicherung\b\s*\n[^\n]+\n[^\n]+\n(\d{5}\s+[^\n]+)",
         r"\bHaftpflichtversicherung\b\s*\n[^\n]+\n[^\n]+\n(\d{5}\s+[^\n]+)",
         r"PLZ\s*Ort\s+([^\n]+)",
-    ]),
+    ], postprocess=join_lines),
     "SCHADENSNUMMER": MultiPattern([
         r"Schadennummer\s*[:\-]?\s*([A-Za-z0-9\/\-\_]+)",
         r"Schaden\-Nr\.\s*[:\-]?\s*([A-Za-z0-9\/\-\_]+)",
         r"Versicherungs\-Nr\.\s*([A-Za-z0-9\/\-\_]+)",
     ]),
 
+    # -------------------
     # Schadenhergang (Abschnitt)
+    # -------------------
     "SCHADENHERGANG": MultiPattern([
         r"(?:Schadenhergang|Unfallhergang)\s*\n([\s\S]{20,900}?)\n(?:\s*[A-ZÄÖÜ][^\n]{2,60}\s*\n|$)",
         r"(?:Angaben\s+des\s+Fahrzeughalters|Angaben\s+des\s+Geschädigten)\s*\n([\s\S]{20,900}?)\n(?:\s*[A-ZÄÖÜ][^\n]{2,60}\s*\n|$)",
         r"(Nach\s+Angaben[\s\S]{30,400}?)(?:\n\n|$)",
-    ]),
+    ], postprocess=join_lines),
 
+    # -------------------
     # Vorsteuer + Kosten
+    # -------------------
     "VORSTEUERBERECHTIGUNG": MultiPattern([
         r"Vorsteuerabzug\s+(Ja|Nein|unbekannt)",
         r"Vorsteuerberechtigt\s*[:\-]?\s*(Ja|Nein)",
@@ -177,6 +208,7 @@ PATTERNS: Dict[str, MultiPattern] = {
 
 def extract_all(text: str) -> Dict[str, str]:
     text = normalize_pdf_text(text)
+
     out: Dict[str, str] = {}
     for key, mp in PATTERNS.items():
         out[key] = mp.find(text)
@@ -190,12 +222,13 @@ def extract_all(text: str) -> Dict[str, str]:
 def derive_fields(out: Dict[str, str]) -> Dict[str, str]:
     derived: Dict[str, str] = {}
 
+    # WBA = WBW - Restwert
     wbw = euro_to_float(out.get("WBW", ""))
     rw = euro_to_float(out.get("RESTWERT", ""))
     if wbw and (rw or rw == 0.0):
         derived["WIEDERBESCHAFFUNGSWERTAUFWAND"] = euro_format(max(0.0, wbw - rw))
 
-    # Kostensumme: bevorzugt Schadenhöhe ohne MwSt
+    # Kostensumme bevorzugt Schadenhöhe ohne MwSt
     sh_ohne = euro_to_float(out.get("SCHADENHOEHE_OHNE", ""))
     if sh_ohne:
         derived["KOSTENSUMME_X"] = euro_format(sh_ohne)
@@ -211,6 +244,7 @@ def derive_fields(out: Dict[str, str]) -> Dict[str, str]:
 def build_context_for_template(template_keys: Set[str], extracted: Dict[str, str]) -> Dict[str, Any]:
     ctx: Dict[str, Any] = {k: "" for k in template_keys}
 
+    # Defaults nur setzen, wenn Key existiert
     defaults = standard_defaults()
     for k in template_keys:
         if k in defaults:
@@ -220,6 +254,7 @@ def build_context_for_template(template_keys: Set[str], extracted: Dict[str, str
     alias = {
         "UNFALLE_STRASSE": "MANDANT_STRASSE",
         "MANDANT_STRASSE": "MANDANT_STRASSE",
+        # falls Template KOSTENSUMME_X nutzt, wird es aus derived gefüllt
         "KOSTENSUMME_X": "KOSTENSUMME_X",
     }
 
