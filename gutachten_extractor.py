@@ -71,6 +71,10 @@ class MultiPattern:
         for rx in self.patterns:
             m = re.search(rx, text, self.flags)
             if m:
+                # group sicher abfangen
+                if self.group > (m.re.groups or 0):
+                    # Pattern passt, aber group index ist zu hoch -> ignorieren und next
+                    continue
                 val = (m.group(self.group) or "").strip()
                 if self.postprocess:
                     val = self.postprocess(val)
@@ -85,8 +89,7 @@ def get_page_text(doc: fitz.Document, page_1_based: int) -> str:
     return normalize_pdf_text(doc.load_page(idx).get_text("text"))
 
 
-def get_all_text(doc: fitz.Document, max_pages: int = 60) -> str:
-    # Für Performance: cap bei z.B. 60 Seiten
+def get_all_text(doc: fitz.Document, max_pages: int = 80) -> str:
     n = min(doc.page_count, max_pages)
     parts = []
     for i in range(n):
@@ -110,32 +113,34 @@ def apply_patterns(text: str, patterns: Dict[str, MultiPattern], out: Dict[str, 
 
 
 def fill_missing_from(text: str, patterns: Dict[str, MultiPattern], out: Dict[str, str], keys: List[str]) -> None:
-    """Nur fehlende Keys nachziehen."""
     for k in keys:
         if not str(out.get(k, "")).strip():
             mp = patterns.get(k)
-            if mp:
-                val = mp.find(text)
-                if val:
-                    out[k] = val
+            if not mp:
+                continue
+            val = mp.find(text)
+            if val:
+                out[k] = val
 
 
 # -------------------------
 # Patterns
 # -------------------------
 
-# 0) Mandant (meist Seite 1/2, notfalls global)
+# Mandant: wir machen die gewünschte Info IMMER group(1)
 P_MANDANT = {
+    # Vorname: 1. Gruppe ist Vorname
     "MANDANT_VORNAME": MultiPattern([
-        r"(Anspruchsteller|Geschädigte?r)\s*\n(?:Herr|Frau)\s+([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+",
+        r"(?:Anspruchsteller|Geschädigte?r)\s*\n(?:Herr|Frau)\s+([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+",
         r"(?:Herr|Frau)\s+([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+",
         r"Herrn\s*\n([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+",
-    ], group=2),
+    ], group=1),
+    # Nachname: 1. Gruppe ist Nachname
     "MANDANT_NACHNAME": MultiPattern([
-        r"(Anspruchsteller|Geschädigte?r)\s*\n(?:Herr|Frau)\s+[A-Za-zÄÖÜäöüß\-]+\s+([A-Za-zÄÖÜäöüß\-]+)",
+        r"(?:Anspruchsteller|Geschädigte?r)\s*\n(?:Herr|Frau)\s+[A-Za-zÄÖÜäöüß\-]+\s+([A-Za-zÄÖÜäöüß\-]+)",
         r"(?:Herr|Frau)\s+[A-Za-zÄÖÜäöüß\-]+\s+([A-Za-zÄÖÜäöüß\-]+)",
         r"Herrn\s*\n[A-Za-zÄÖÜäöüß\-]+\s+([A-Za-zÄÖÜäöüß\-]+)",
-    ], group=2),
+    ], group=1),
     "MANDANT_STRASSE": MultiPattern([
         r"(?:Herr|Frau|Herrn)\s+[^\n]+\n([^\n]+)\n\d{5}\s+[^\n]+",
         r"Adresse\s*\n([^\n]+)\n\d{5}\s+[^\n]+",
@@ -146,7 +151,7 @@ P_MANDANT = {
     ], postprocess=join_lines),
 }
 
-# 1) Unfall + Versicherung: Seite „Beteiligte, Besichtigungen & Auftrag“
+# Unfall + Versicherung: Seite Beteiligte/Besichtigung/Auftrag
 P_BETEILIGTE = {
     "UNFALL_DATUM": MultiPattern([
         r"Unfall\s*Datum\s*(\d{2}\.\d{2}\.\d{4})",
@@ -164,10 +169,10 @@ P_BETEILIGTE = {
 
     "VERSICHERUNG": MultiPattern(
         patterns=[
-            r"\b(Versicherung|Haftpflichtversicherung|Versicherer)\b\s*[:\-]?\s*\n([\s\S]{5,240}?)\n(?:Straße|PLZ|Ort|Schaden|Schadennummer|Versicherungs\-Nr|$)",
-            r"\b(Versicherung|Haftpflichtversicherung|Versicherer)\b\s*[:\-]?\s*([^\n]+)",
+            r"\b(?:Versicherung|Haftpflichtversicherung|Versicherer)\b\s*[:\-]?\s*\n([\s\S]{5,240}?)\n(?:Straße|PLZ|Ort|Schaden|Schadennummer|Versicherungs\-Nr|$)",
+            r"\b(?:Versicherung|Haftpflichtversicherung|Versicherer)\b\s*[:\-]?\s*([^\n]+)",
         ],
-        group=2,
+        group=1,
         postprocess=join_lines
     ),
     "VER_STRASSE": MultiPattern([
@@ -184,7 +189,7 @@ P_BETEILIGTE = {
     ]),
 }
 
-# 2) Auto + Vorsteuer: Seite 2
+# Fahrzeug / Vorsteuer: Seite 2
 P_AUTO = {
     "KENNZEICHEN": MultiPattern([
         r"Amtliches\s+Kennzeichen\s+([A-ZÄÖÜ]{1,3}\s*[A-Z]{1,3}\s*\d{1,4})",
@@ -204,7 +209,7 @@ P_AUTO = {
     ]),
 }
 
-# 3) Gutachterkosten: Seite 1
+# Gutachterkosten: Seite 1
 P_GUTACHTER = {
     "GUTACHTERKOSTEN": MultiPattern([
         r"Gesamtbetrag\s+inkl\.\s+MwSt\.\s+([\d\.\,]+)\s*€",
@@ -212,7 +217,7 @@ P_GUTACHTER = {
     ]),
 }
 
-# 4) Zusammenfassung/Rechnung: Seite 3
+# Zusammenfassung: Seite 3
 P_ZUSAMMENFASSUNG = {
     "REPARATURKOSTEN": MultiPattern([
         r"Reparaturkosten\s+ohne\s+MwSt\.\s+([\d\.\,]+)\s*€",
@@ -239,7 +244,7 @@ P_ZUSAMMENFASSUNG = {
     ]),
 }
 
-# 5) Schadenhergang: Seite 10
+# Schadenhergang: Seite 10
 P_SCHADENHERGANG = {
     "SCHADENHERGANG": MultiPattern([
         r"Schadenhergang\s*\n([\s\S]{30,1500}?)(?:\n\s*[A-ZÄÖÜ][^\n]{2,70}\n|$)",
@@ -250,7 +255,6 @@ P_SCHADENHERGANG = {
 def derive_fields(out: Dict[str, str]) -> Dict[str, str]:
     derived: Dict[str, str] = {}
 
-    # KOSTENSUMME_X
     sh = euro_to_float(out.get("SCHADENHOEHE_OHNE", ""))
     if sh:
         derived["KOSTENSUMME_X"] = euro_format(sh)
@@ -263,13 +267,11 @@ def derive_fields(out: Dict[str, str]) -> Dict[str, str]:
         if s:
             derived["KOSTENSUMME_X"] = euro_format(s)
 
-    # WBA
     wbw = euro_to_float(out.get("WBW", ""))
     rw = euro_to_float(out.get("RESTWERT", ""))
     if wbw and (rw or rw == 0.0):
         derived["WIEDERBESCHAFFUNGSWERTAUFWAND"] = euro_format(max(0.0, wbw - rw))
 
-    # Vorsteuer normalisieren
     if "VORSTEUERBERECHTIGUNG" in out:
         out["VORSTEUERBERECHTIGUNG"] = normalize_vorsteuer(out.get("VORSTEUERBERECHTIGUNG", ""))
 
@@ -279,42 +281,38 @@ def derive_fields(out: Dict[str, str]) -> Dict[str, str]:
 def extract_from_pdf_bytes(pdf_bytes: bytes) -> Dict[str, str]:
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     out: Dict[str, str] = {}
-
     all_text = get_all_text(doc)
 
-    # Mandant: zuerst Seite 1 & 2, dann global fallback
+    # Mandant: Seite 1+2, sonst global
     apply_patterns(get_page_text(doc, 1), P_MANDANT, out)
     apply_patterns(get_page_text(doc, 2), P_MANDANT, out)
     fill_missing_from(all_text, P_MANDANT, out, ["MANDANT_VORNAME", "MANDANT_NACHNAME", "MANDANT_STRASSE", "MANDANT_PLZ_ORT"])
 
-    # Beteiligte-Seite (Unfall + Versicherung): Seite finden, sonst global fallback
+    # Beteiligte: Seite finden, sonst global
     beteiligte_page = find_beteiligte_page(doc)
     if beteiligte_page:
         apply_patterns(get_page_text(doc, beteiligte_page), P_BETEILIGTE, out)
     else:
-        # fallback: wenn Seite nicht gefunden, trotzdem versuchen global
         apply_patterns(all_text, P_BETEILIGTE, out)
 
-    # Auto-Daten Seite 2 + fallback global
+    # Auto: Seite 2, sonst global
     apply_patterns(get_page_text(doc, 2), P_AUTO, out)
     fill_missing_from(all_text, P_AUTO, out, ["AKTENZEICHEN", "KENNZEICHEN", "FAHRZEUGTYP", "VORSTEUERBERECHTIGUNG"])
 
-    # Gutachterkosten Seite 1 + fallback global
+    # Gutachter: Seite 1, sonst global
     apply_patterns(get_page_text(doc, 1), P_GUTACHTER, out)
     fill_missing_from(all_text, P_GUTACHTER, out, ["GUTACHTERKOSTEN"])
 
-    # Zusammenfassung Seite 3 + fallback global
+    # Zusammenfassung: Seite 3, sonst global
     apply_patterns(get_page_text(doc, 3), P_ZUSAMMENFASSUNG, out)
     fill_missing_from(all_text, P_ZUSAMMENFASSUNG, out, ["REPARATURKOSTEN", "WERTMINDERUNG", "KOSTENPAUSCHALE", "SCHADENHOEHE_OHNE", "WBW", "RESTWERT"])
 
-    # Schadenhergang Seite 10 + fallback global
+    # Schadenhergang: Seite 10, sonst global
     apply_patterns(get_page_text(doc, 10), P_SCHADENHERGANG, out)
     fill_missing_from(all_text, P_SCHADENHERGANG, out, ["SCHADENHERGANG"])
 
-    # Defaults
+    # Defaults + Derived
     out.update({k: v for k, v in standard_defaults().items() if k not in out or not str(out[k]).strip()})
-
-    # Derived
     out.update(derive_fields(out))
 
     return out
