@@ -6,7 +6,6 @@ from typing import Dict, Any, List
 import word_backend as wb
 import gutachten_extractor as gx
 
-
 TEMPLATES = {
     "Standard Schreiben": ("vorlage_schreiben-1.docx", "Standard_schreiben"),
     "130 Prozent": ("vorlage_130_prozent-1.docx", "130_prozent"),
@@ -89,7 +88,7 @@ if st.session_state["step"] == "extract":
     tpl_name, out_prefix = TEMPLATES[template_label]
 
     pdf_file = st.file_uploader("Gutachten als PDF hochladen", type=["pdf"])
-    show_debug = st.toggle("Debug anzeigen (Regex + fehlende Keys)", value=True)
+    show_debug = st.toggle("Debug anzeigen (Blöcke + fehlende Keys)", value=True)
 
     st.caption("Hinweis: Funktioniert am besten bei Text-PDFs (nicht reine Scans ohne OCR).")
 
@@ -111,7 +110,6 @@ if st.session_state["step"] == "extract":
         merged = {**extracted, **derived}
 
         ctx = gx.build_context_for_template(set(template_keys), merged)
-
         missing = [k for k in template_keys if not str(ctx.get(k, "")).strip()]
 
         st.session_state["tpl_name"] = tpl_name
@@ -123,8 +121,8 @@ if st.session_state["step"] == "extract":
         st.session_state["derived"] = derived
 
         if show_debug:
-            with st.expander("🔎 Debug: Extrahierte Werte", expanded=True):
-                st.subheader("Extracted (Regex)")
+            with st.expander("🔎 Debug: Extracted + Derived", expanded=True):
+                st.subheader("Extracted (Regex, block-sicher)")
                 st.json(extracted)
                 st.subheader("Derived (berechnet)")
                 st.json(derived)
