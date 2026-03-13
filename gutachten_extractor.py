@@ -7,6 +7,26 @@ from typing import Dict, Any, List, Set, Callable, Optional
 
 
 # -------------------------
+# Helper: Text normalisieren
+# -------------------------
+def normalize_pdf_text(text: str) -> str:
+    t = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    t = t.replace("\t", " ")
+    t = re.sub(r"[ ]{2,}", " ", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t
+
+
+def join_lines(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"\s*\n\s*", " ", s)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    return s
+
+
+# -------------------------
 # Geld / Format Helpers
 # -------------------------
 def euro_to_float(s: str) -> float:
@@ -27,7 +47,6 @@ def euro_format(x: float) -> str:
 
 
 def normalize_vorsteuer(value: str) -> str:
-    # Regel: JA -> "" ; NEIN -> "nicht"
     v = (value or "").strip().lower()
     if v in {"ja", "yes", "y", "true"}:
         return ""
@@ -42,22 +61,45 @@ def standard_defaults() -> Dict[str, str]:
     return {"HEUTDATUM": today, "FIRST_DATUM": frist, "FRIST_DATUM": frist}
 
 
-def normalize_pdf_text(text: str) -> str:
-    t = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    t = t.replace("\t", " ")
-    t = re.sub(r"[ ]{2,}", " ", t)
-    t = re.sub(r"\n{3,}", "\n\n", t)
-    return t
-
-
-def join_lines(s: str) -> str:
-    """Mehrzeiligen Text zu einer sauberen Zeile machen."""
-    s = (s or "").strip()
-    if not s:
+# -------------------------
+# BLOCK-Extraktion (wichtig!)
+# -------------------------
+def extract_block(text: str, start_rx: str, end_rx_list: list[str], max_len: int = 1800) -> str:
+    m = re.search(start_rx, text, re.IGNORECASE | re.MULTILINE)
+    if not m:
         return ""
-    s = re.sub(r"\s*\n\s*", " ", s)
-    s = re.sub(r"\s{2,}", " ", s).strip()
-    return s
+    start = m.end()
+    sub = text[start:start + max_len]
+
+    ends = []
+    for erx in end_rx_list:
+        em = re.search(erx, sub, re.IGNORECASE | re.MULTILINE)
+        if em:
+            ends.append(em.start())
+    if ends:
+        sub = sub[:min(ends)]
+    return sub.strip()
+
+
+def get_mandant_block(text: str) -> str:
+    # möglichst früh im Dokument – "Anspruchsteller" oder direkte Anrede
+    return extract_block(
+        text,
+        start_rx=r"\b(Anspruchsteller|Geschädigte?r)\b",
+        end_rx_list=[r"\bVersicherung\b", r"\bHaftpflichtversicherung\b", r"\bVersicherer\b", r"\bFahrzeug\b", r"\bUnfall\b", r"\bAktenzeichen\b"]
+    ) or extract_block(
+        text,
+        start_rx=r"\b(Frau|Herrn|Herr)\b",
+        end_rx_list=[r"\bVersicherung\b", r"\bHaftpflichtversicherung\b", r"\bVersicherer\b", r"\bFahrzeug\b", r"\bUnfall\b", r"\bAktenzeichen\b"]
+    )
+
+
+def get_versicherung_block(text: str) -> str:
+    return extract_block(
+        text,
+        start_rx=r"\b(Versicherung|Haftpflichtversicherung|Versicherer)\b",
+        end_rx_list=[r"\bFahrzeug\b", r"\bUnfall\b", r"\bAnspruchsteller\b", r"\bGeschädigte?r\b", r"\bSchadenhergang\b", r"\bAktenzeichen\b"]
+    )
 
 
 # -------------------------
@@ -81,32 +123,10 @@ class MultiPattern:
         return ""
 
 
-PATTERNS: Dict[str, MultiPattern] = {
-    # -------------------
-    # Mandant
-    # -------------------
-    "MANDANT_VORNAME": MultiPattern([
-        r"Anspruchsteller\s*\n(?:Herr|Frau)\s+([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+",
-        r"\n(?:Herr|Frau)\s+([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+\n",
-        r"\nHerrn\s*\n([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+\n",
-    ]),
-    "MANDANT_NACHNAME": MultiPattern([
-        r"Anspruchsteller\s*\n(?:Herr|Frau)\s+[A-Za-zÄÖÜäöüß\-]+\s+([A-Za-zÄÖÜäöüß\-]+)",
-        r"\n(?:Herr|Frau)\s+[A-Za-zÄÖÜäöüß\-]+\s+([A-Za-zÄÖÜäöüß\-]+)\n",
-        r"\nHerrn\s*\n[A-Za-zÄÖÜäöüß\-]+\s+([A-Za-zÄÖÜäöüß\-]+)\n",
-    ]),
-    "MANDANT_STRASSE": MultiPattern([
-        r"(?:Frau|Herrn|Herr)\s*\n[^\n]+\n([^\n]+)\n\d{5}\s+[^\n]+",
-        r"Adresse\s*\n([^\n]+)\n\d{5}\s+[^\n]+",
-    ]),
-    "MANDANT_PLZ_ORT": MultiPattern([
-        r"(?:Frau|Herrn|Herr)\s*\n[^\n]+\n[^\n]+\n(\d{5}\s+[^\n]+)",
-        r"Adresse\s*\n[^\n]+\n(\d{5}\s+[^\n]+)",
-    ]),
-
-    # -------------------
-    # Unfall
-    # -------------------
+# -------------------------
+# Global patterns (sichere Felder)
+# -------------------------
+GLOBAL_PATTERNS: Dict[str, MultiPattern] = {
     "UNFALL_DATUM": MultiPattern([
         r"Unfall\s*Datum\s*(\d{2}\.\d{2}\.\d{4})",
         r"Unfalldatum\s*[:\-]?\s*(\d{2}\.\d{2}\.\d{4})",
@@ -116,16 +136,13 @@ PATTERNS: Dict[str, MultiPattern] = {
         r"(?:Unfallort|Unfallstelle|Ort)\s*\n\s*([^\n,]+(?:\s+\d+[a-zA-Z]?)?)",
         r"(?:Unfallort|Unfallstelle|Ort)\s*[:\-]?\s*([^\n,]+(?:\s+\d+[a-zA-Z]?)?)",
         r"(?:Unfallort|Unfallstelle|Ort)\s*\n\s*([^\n]+,\s*\d{5}\s+[^\n]+)",
-    ]),
+    ], postprocess=join_lines),
     "UNFALL_ORT": MultiPattern([
         r"(?:Unfallort|Unfallstelle|Ort)\s*\n(?:[^\n]+\n)?\s*(\d{5}\s+[^\n]+)",
         r"(?:Unfallort|Unfallstelle|Ort)\s*[:\-]?\s*(\d{5}\s+[^\n]+)",
         r"(?:Unfallort|Unfallstelle|Ort)\s*\n(?:[^\n]+,\s*)?([A-Za-zÄÖÜäöüß\-\(\) ]{3,})",
-    ]),
+    ], postprocess=join_lines),
 
-    # -------------------
-    # Aktenzeichen / Fahrzeug
-    # -------------------
     "AKTENZEICHEN": MultiPattern([
         r"Aktenzeichen\s+([A-Z0-9\-\/]+)",
         r"\bGA\-[A-Z0-9\-\/]+\b",
@@ -137,52 +154,25 @@ PATTERNS: Dict[str, MultiPattern] = {
     "FAHRZEUGTYP": MultiPattern([
         r"Modell/Haupttyp\s+([^\n]+)",
         r"Fahrzeugtyp\s*[:\-]?\s*([^\n]+)",
-    ]),
+    ], postprocess=join_lines),
 
-    # -------------------
-    # Versicherung (MEHRZEILIG!)
-    # -------------------
-    "VERSICHERUNG": MultiPattern(
-        patterns=[
-            r"\bVersicherung\b\s*\n([\s\S]{5,200}?)\n(?:Straße|PLZ\s*Ort|Schaden|Schadennummer|Versicherungs\-Nr|$)",
-            r"\bHaftpflichtversicherung\b\s*\n([\s\S]{5,200}?)\n(?:Straße|PLZ\s*Ort|Schaden|Schadennummer|Versicherungs\-Nr|$)",
-            r"\bVersicherer\b\s*[:\-]?\s*([\s\S]{5,200}?)\n(?:Straße|PLZ\s*Ort|Schaden|Schadennummer|Versicherungs\-Nr|$)",
-        ],
-        group=1,
-        postprocess=join_lines
-    ),
-    "VER_STRASSE": MultiPattern([
-        r"\bVersicherung\b\s*\n[^\n]+\n([^\n]+)\n\d{5}\s+[^\n]+",
-        r"\bHaftpflichtversicherung\b\s*\n[^\n]+\n([^\n]+)\n\d{5}\s+[^\n]+",
-        r"Straße\s+([^\n]+)\nPLZ\s*Ort",
-    ], postprocess=join_lines),
-    "VER_ORT": MultiPattern([
-        r"\bVersicherung\b\s*\n[^\n]+\n[^\n]+\n(\d{5}\s+[^\n]+)",
-        r"\bHaftpflichtversicherung\b\s*\n[^\n]+\n[^\n]+\n(\d{5}\s+[^\n]+)",
-        r"PLZ\s*Ort\s+([^\n]+)",
-    ], postprocess=join_lines),
     "SCHADENSNUMMER": MultiPattern([
         r"Schadennummer\s*[:\-]?\s*([A-Za-z0-9\/\-\_]+)",
         r"Schaden\-Nr\.\s*[:\-]?\s*([A-Za-z0-9\/\-\_]+)",
         r"Versicherungs\-Nr\.\s*([A-Za-z0-9\/\-\_]+)",
     ]),
 
-    # -------------------
-    # Schadenhergang (Abschnitt)
-    # -------------------
     "SCHADENHERGANG": MultiPattern([
         r"(?:Schadenhergang|Unfallhergang)\s*\n([\s\S]{20,900}?)\n(?:\s*[A-ZÄÖÜ][^\n]{2,60}\s*\n|$)",
         r"(?:Angaben\s+des\s+Fahrzeughalters|Angaben\s+des\s+Geschädigten)\s*\n([\s\S]{20,900}?)\n(?:\s*[A-ZÄÖÜ][^\n]{2,60}\s*\n|$)",
-        r"(Nach\s+Angaben[\s\S]{30,400}?)(?:\n\n|$)",
+        r"(Nach\s+Angaben[\s\S]{30,450}?)(?:\n\n|$)",
     ], postprocess=join_lines),
 
-    # -------------------
-    # Vorsteuer + Kosten
-    # -------------------
     "VORSTEUERBERECHTIGUNG": MultiPattern([
         r"Vorsteuerabzug\s+(Ja|Nein|unbekannt)",
         r"Vorsteuerberechtigt\s*[:\-]?\s*(Ja|Nein)",
     ]),
+
     "REPARATURKOSTEN": MultiPattern([
         r"Reparaturkosten\s+ohne\s+MwSt\.\s+([\d\.\,]+)\s*€",
         r"Reparaturkosten\s+netto\s+([\d\.\,]+)\s*€",
@@ -206,13 +196,69 @@ PATTERNS: Dict[str, MultiPattern] = {
 }
 
 
+# -------------------------
+# Mandant block patterns
+# -------------------------
+MANDANT_PATTERNS: Dict[str, MultiPattern] = {
+    "MANDANT_VORNAME": MultiPattern([
+        r"(?:Herr|Frau)\s+([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+",
+        r"Herrn\s*\n([A-Za-zÄÖÜäöüß\-]+)\s+[A-Za-zÄÖÜäöüß\-]+",
+    ]),
+    "MANDANT_NACHNAME": MultiPattern([
+        r"(?:Herr|Frau)\s+[A-Za-zÄÖÜäöüß\-]+\s+([A-Za-zÄÖÜäöüß\-]+)",
+        r"Herrn\s*\n[A-Za-zÄÖÜäöüß\-]+\s+([A-Za-zÄÖÜäöüß\-]+)",
+    ]),
+    "MANDANT_STRASSE": MultiPattern([
+        r"(?:Herr|Frau|Herrn)\s+[^\n]+\n([^\n]+)\n\d{5}\s+[^\n]+",
+        r"\n([^\n]+)\n(\d{5}\s+[^\n]+)",  # fallback: erste Straße vor PLZ Ort (nur im Mandant-Block!)
+    ], postprocess=join_lines),
+    "MANDANT_PLZ_ORT": MultiPattern([
+        r"(?:Herr|Frau|Herrn)\s+[^\n]+\n[^\n]+\n(\d{5}\s+[^\n]+)",
+        r"\n[^\n]+\n(\d{5}\s+[^\n]+)",
+    ], postprocess=join_lines),
+}
+
+
+# -------------------------
+# Versicherung block patterns (BLOCK-SICHER)
+# -------------------------
+VERS_PATTERNS: Dict[str, MultiPattern] = {
+    "VERSICHERUNG": MultiPattern(
+        patterns=[
+            r"\b(Versicherung|Haftpflichtversicherung|Versicherer)\b\s*\n([\s\S]{5,220}?)\n(?:Straße|PLZ\s*Ort|Schaden|Schadennummer|Versicherungs\-Nr|$)",
+        ],
+        group=2,
+        postprocess=join_lines
+    ),
+    "VER_STRASSE": MultiPattern([
+        r"\b(Versicherung|Haftpflichtversicherung|Versicherer)\b[\s\S]{0,260}?\n([^\n]+)\n\d{5}\s+[^\n]+",
+    ], group=2, postprocess=join_lines),
+    "VER_ORT": MultiPattern([
+        r"\b(Versicherung|Haftpflichtversicherung|Versicherer)\b[\s\S]{0,260}?\n[^\n]+\n(\d{5}\s+[^\n]+)",
+    ], group=2, postprocess=join_lines),
+}
+
+
 def extract_all(text: str) -> Dict[str, str]:
     text = normalize_pdf_text(text)
-
     out: Dict[str, str] = {}
-    for key, mp in PATTERNS.items():
+
+    mandant_block = get_mandant_block(text)
+    vers_block = get_versicherung_block(text)
+
+    # 1) globale Felder
+    for key, mp in GLOBAL_PATTERNS.items():
         out[key] = mp.find(text)
 
+    # 2) Mandant nur im Mandant-Block (Fallback: global, falls Block leer)
+    for k, mp in MANDANT_PATTERNS.items():
+        out[k] = mp.find(mandant_block) or mp.find(text)
+
+    # 3) Versicherung nur im Versicherungs-Block (Fallback: global, falls Block leer)
+    for k, mp in VERS_PATTERNS.items():
+        out[k] = mp.find(vers_block) or mp.find(text)
+
+    # Vorsteuer normalisieren
     if out.get("VORSTEUERBERECHTIGUNG"):
         out["VORSTEUERBERECHTIGUNG"] = normalize_vorsteuer(out["VORSTEUERBERECHTIGUNG"])
 
@@ -222,13 +268,11 @@ def extract_all(text: str) -> Dict[str, str]:
 def derive_fields(out: Dict[str, str]) -> Dict[str, str]:
     derived: Dict[str, str] = {}
 
-    # WBA = WBW - Restwert
     wbw = euro_to_float(out.get("WBW", ""))
     rw = euro_to_float(out.get("RESTWERT", ""))
     if wbw and (rw or rw == 0.0):
         derived["WIEDERBESCHAFFUNGSWERTAUFWAND"] = euro_format(max(0.0, wbw - rw))
 
-    # Kostensumme bevorzugt Schadenhöhe ohne MwSt
     sh_ohne = euro_to_float(out.get("SCHADENHOEHE_OHNE", ""))
     if sh_ohne:
         derived["KOSTENSUMME_X"] = euro_format(sh_ohne)
@@ -241,10 +285,9 @@ def derive_fields(out: Dict[str, str]) -> Dict[str, str]:
     return derived
 
 
-def build_context_for_template(template_keys: Set[str], extracted: Dict[str, str]) -> Dict[str, Any]:
+def build_context_for_template(template_keys: Set[str], merged: Dict[str, str]) -> Dict[str, Any]:
     ctx: Dict[str, Any] = {k: "" for k in template_keys}
 
-    # Defaults nur setzen, wenn Key existiert
     defaults = standard_defaults()
     for k in template_keys:
         if k in defaults:
@@ -254,13 +297,12 @@ def build_context_for_template(template_keys: Set[str], extracted: Dict[str, str
     alias = {
         "UNFALLE_STRASSE": "MANDANT_STRASSE",
         "MANDANT_STRASSE": "MANDANT_STRASSE",
-        # falls Template KOSTENSUMME_X nutzt, wird es aus derived gefüllt
         "KOSTENSUMME_X": "KOSTENSUMME_X",
     }
 
     for k in template_keys:
         src = alias.get(k, k)
-        if src in extracted and extracted[src]:
-            ctx[k] = extracted[src]
+        if src in merged and str(merged[src]).strip():
+            ctx[k] = merged[src]
 
     return ctx
