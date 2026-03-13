@@ -52,6 +52,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "KOSTENSUMME_X", "WIEDERBESCHAFFUNGSWERTAUFWAND",
         "REPARATURKOSTEN", "WERTMINDERUNG",
     ]
+
     keys_sorted = []
     for p in priority:
         if p in keys and p not in keys_sorted:
@@ -64,6 +65,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     for i, k in enumerate(keys_sorted):
         col = cols[i % 3]
         val = "" if updated.get(k) is None else str(updated.get(k, ""))
+
         if k in {"SCHADENHERGANG", "SONSTIGE"}:
             updated[k] = col.text_area(k, value=val, height=160, key=f"rev_{k}")
         else:
@@ -87,7 +89,6 @@ if st.session_state["step"] == "extract":
     tpl_name, out_prefix = TEMPLATES[template_label]
 
     pdf_file = st.file_uploader("Gutachten als PDF hochladen", type=["pdf"])
-
     show_debug = st.toggle("Debug anzeigen (Regex + fehlende Keys)", value=True)
 
     st.caption("Hinweis: Funktioniert am besten bei Text-PDFs (nicht reine Scans ohne OCR).")
