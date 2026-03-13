@@ -6,6 +6,7 @@ from typing import Dict, Any, List
 import word_backend as wb
 import gutachten_extractor as gx
 
+
 TEMPLATES = {
     "Standard Schreiben": ("vorlage_schreiben-1.docx", "Standard_schreiben"),
     "130 Prozent": ("vorlage_130_prozent-1.docx", "130_prozent"),
@@ -17,16 +18,13 @@ TEMPLATES = {
 
 
 def ensure_state():
-    st.session_state.setdefault("step", "extract")  # extract -> review
+    st.session_state.setdefault("step", "extract")
     st.session_state.setdefault("tpl_name", "")
     st.session_state.setdefault("out_prefix", "")
     st.session_state.setdefault("template_label", "")
     st.session_state.setdefault("ctx", {})
     st.session_state.setdefault("template_keys", [])
     st.session_state.setdefault("extracted", {})
-    st.session_state.setdefault("derived", {})
-    st.session_state.setdefault("pdf_text_len", 0)
-    st.session_state.setdefault("pdf_text_cache", "")
 
 
 def go_review():
@@ -49,8 +47,8 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "AKTENZEICHEN", "KENNZEICHEN", "FAHRZEUGTYP",
         "VERSICHERUNG", "VER_STRASSE", "VER_ORT",
         "SCHADENSNUMMER", "VORSTEUERBERECHTIGUNG",
-        "KOSTENSUMME_X", "WIEDERBESCHAFFUNGSWERTAUFWAND",
-        "REPARATURKOSTEN", "WERTMINDERUNG",
+        "KOSTENSUMME_X", "REPARATURKOSTEN", "WERTMINDERUNG", "GUTACHTERKOSTEN",
+        "SCHADENHERGANG"
     ]
 
     keys_sorted = []
@@ -65,7 +63,6 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     for i, k in enumerate(keys_sorted):
         col = cols[i % 3]
         val = "" if updated.get(k) is None else str(updated.get(k, ""))
-
         if k in {"SCHADENHERGANG", "SONSTIGE"}:
             updated[k] = col.text_area(k, value=val, height=160, key=f"rev_{k}")
         else:
@@ -76,43 +73,21 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
 
 st.set_page_config(page_title="Gutachten → Schreiben (Review)", layout="wide")
 ensure_state()
-st.title("Gutachten → Word-Schreiben (ohne KI) + Überprüf-Seite")
+st.title("Gutachten → Word-Schreiben (ohne KI) + Überprüf-Seite (seitenbasiert)")
 
-with st.expander("📁 Vorlagen im Repo anzeigen", expanded=False):
-    st.write(str(wb.VORLAGEN_DIR))
-    st.write([p.name for p in wb.VORLAGEN_DIR.glob("*.docx")])
+template_label = st.selectbox("Vorlage wählen", list(TEMPLATES.keys()))
+tpl_name, out_prefix = TEMPLATES[template_label]
 
+pdf_file = st.file_uploader("Gutachten als PDF hochladen", type=["pdf"])
+show_debug = st.toggle("Debug anzeigen (Extrahierte Werte)", value=True)
 
-# STEP 1: Extract
 if st.session_state["step"] == "extract":
-    template_label = st.selectbox("Vorlage wählen", list(TEMPLATES.keys()))
-    tpl_name, out_prefix = TEMPLATES[template_label]
-
-    pdf_file = st.file_uploader("Gutachten als PDF hochladen", type=["pdf"])
-    show_debug = st.toggle("Debug anzeigen (Beteiligte-Block + fehlende Keys)", value=True)
-
-    st.caption("Hinweis: Funktioniert am besten bei Text-PDFs (nicht reine Scans ohne OCR).")
-
     if st.button("🔎 Werte aus PDF extrahieren", type="primary", disabled=(pdf_file is None)):
-        import fitz
-
-        template_keys = sorted(list(wb.get_template_vars(tpl_name)))
-
         pdf_bytes = pdf_file.read()
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        pdf_text = "\n".join(doc.load_page(i).get_text("text") for i in range(doc.page_count))
 
-        st.session_state["pdf_text_cache"] = pdf_text
-        st.session_state["pdf_text_len"] = len(pdf_text.strip())
-        if st.session_state["pdf_text_len"] < 300:
-            st.warning("⚠️ Sehr wenig Text im PDF gefunden. Das sieht nach Scan/OCR-PDF aus. Ohne OCR werden viele Felder leer bleiben.")
-
-        extracted = gx.extract_all(pdf_text)
-        derived = gx.derive_fields(extracted)
-        merged = {**extracted, **derived}
-
-        ctx = gx.build_context_for_template(set(template_keys), merged)
-        missing = [k for k in template_keys if not str(ctx.get(k, "")).strip()]
+        extracted = gx.extract_from_pdf_bytes(pdf_bytes)
+        template_keys = sorted(list(wb.get_template_vars(tpl_name)))
+        ctx = gx.build_context_for_template(set(template_keys), extracted)
 
         st.session_state["tpl_name"] = tpl_name
         st.session_state["out_prefix"] = out_prefix
@@ -120,47 +95,30 @@ if st.session_state["step"] == "extract":
         st.session_state["template_keys"] = template_keys
         st.session_state["ctx"] = ctx
         st.session_state["extracted"] = extracted
-        st.session_state["derived"] = derived
 
         if show_debug:
-            with st.expander("🧱 Debug: Beteiligte/Besichtigung/Auftrag Block", expanded=False):
-                st.text_area("Block (Ausschnitt)", gx.get_beteiligte_block(gx.normalize_pdf_text(pdf_text))[:3500], height=220)
-
-            with st.expander("🔎 Debug: Extracted + Derived", expanded=True):
-                st.subheader("Extracted")
+            with st.expander("🔎 Debug: Extrahierte Werte", expanded=True):
                 st.json(extracted)
-                st.subheader("Derived")
-                st.json(derived)
-
-            with st.expander("🧩 Debug: Fehlende Keys im Context", expanded=False):
-                st.write(missing)
 
         go_review()
         st.rerun()
 
-# STEP 2: Review + Generate
 else:
     st.subheader(f"Vorlage: {st.session_state['template_label']}")
-    st.caption(f"PDF-Textlänge: {st.session_state['pdf_text_len']} Zeichen")
-
     updated_ctx = render_review_form(st.session_state["template_keys"], st.session_state["ctx"])
     st.session_state["ctx"] = updated_ctx
 
     st.divider()
     c1, c2, c3 = st.columns(3)
-
     with c1:
         if st.button("⬅️ Zurück (neu extrahieren)"):
             go_extract()
             st.rerun()
-
     with c2:
         if st.button("🔄 Review zurücksetzen"):
             template_keys = set(st.session_state["template_keys"])
-            merged = {**st.session_state["extracted"], **st.session_state["derived"]}
-            st.session_state["ctx"] = gx.build_context_for_template(template_keys, merged)
+            st.session_state["ctx"] = gx.build_context_for_template(template_keys, st.session_state["extracted"])
             st.rerun()
-
     with c3:
         if st.button("✅ Word endgültig erzeugen", type="primary"):
             out_path = wb.render_word(
@@ -177,5 +135,4 @@ else:
                     file_name=out_path.name,
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 )
-
             st.caption(f"Gespeichert in: {wb.OUTPUT_DIR}")
