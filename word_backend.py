@@ -20,7 +20,10 @@ def safe_filename(s: str) -> str:
 def get_template_vars(tpl_name: str) -> Set[str]:
     tpl_path = VORLAGEN_DIR / tpl_name
     if not tpl_path.exists():
-        raise FileNotFoundError(f"Vorlage nicht gefunden: {tpl_path}")
+        raise FileNotFoundError(
+            f"Vorlage nicht gefunden: {tpl_path}\n"
+            f"Vorhandene .docx im Repo: {[p.name for p in VORLAGEN_DIR.glob('*.docx')]}"
+        )
 
     tpl = DocxTemplate(str(tpl_path))
     return set(tpl.get_undeclared_template_variables() or [])
@@ -40,5 +43,6 @@ def render_word(tpl_name: str, context: Dict[str, Any], out_prefix: str) -> Path
     nachname = safe_filename(str(context.get("MANDANT_NACHNAME", "Unbekannt") or "Unbekannt"))
     out_name = f"{out_prefix}_{nachname}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
     out_path = OUTPUT_DIR / out_name
+
     tpl.save(str(out_path))
     return out_path
