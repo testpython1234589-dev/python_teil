@@ -26,6 +26,7 @@ def ensure_state():
     st.session_state.setdefault("extracted", {})
     st.session_state.setdefault("derived", {})
     st.session_state.setdefault("pdf_text_len", 0)
+    st.session_state.setdefault("pdf_text_cache", "")
 
 
 def go_review():
@@ -88,7 +89,7 @@ if st.session_state["step"] == "extract":
     tpl_name, out_prefix = TEMPLATES[template_label]
 
     pdf_file = st.file_uploader("Gutachten als PDF hochladen", type=["pdf"])
-    show_debug = st.toggle("Debug anzeigen (Blöcke + fehlende Keys)", value=True)
+    show_debug = st.toggle("Debug anzeigen (Beteiligte-Block + fehlende Keys)", value=True)
 
     st.caption("Hinweis: Funktioniert am besten bei Text-PDFs (nicht reine Scans ohne OCR).")
 
@@ -101,6 +102,7 @@ if st.session_state["step"] == "extract":
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         pdf_text = "\n".join(doc.load_page(i).get_text("text") for i in range(doc.page_count))
 
+        st.session_state["pdf_text_cache"] = pdf_text
         st.session_state["pdf_text_len"] = len(pdf_text.strip())
         if st.session_state["pdf_text_len"] < 300:
             st.warning("⚠️ Sehr wenig Text im PDF gefunden. Das sieht nach Scan/OCR-PDF aus. Ohne OCR werden viele Felder leer bleiben.")
@@ -121,11 +123,15 @@ if st.session_state["step"] == "extract":
         st.session_state["derived"] = derived
 
         if show_debug:
+            with st.expander("🧱 Debug: Beteiligte/Besichtigung/Auftrag Block", expanded=False):
+                st.text_area("Block (Ausschnitt)", gx.get_beteiligte_block(gx.normalize_pdf_text(pdf_text))[:3500], height=220)
+
             with st.expander("🔎 Debug: Extracted + Derived", expanded=True):
-                st.subheader("Extracted (Regex, block-sicher)")
+                st.subheader("Extracted")
                 st.json(extracted)
-                st.subheader("Derived (berechnet)")
+                st.subheader("Derived")
                 st.json(derived)
+
             with st.expander("🧩 Debug: Fehlende Keys im Context", expanded=False):
                 st.write(missing)
 
