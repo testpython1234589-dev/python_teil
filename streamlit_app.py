@@ -17,7 +17,7 @@ TEMPLATES = {
 }
 
 
-def ensure_state():
+def ensure_state() -> None:
     st.session_state.setdefault("step", "extract")
     st.session_state.setdefault("tpl_name", "")
     st.session_state.setdefault("out_prefix", "")
@@ -28,23 +28,24 @@ def ensure_state():
     st.session_state.setdefault("debug_extracted", {})
 
 
-def clear_review_widget_state():
+def clear_review_widget_state() -> None:
     for key in list(st.session_state.keys()):
         if key.startswith("rev_"):
             del st.session_state[key]
 
 
-def load_review_widget_state(keys: List[str], ctx: Dict[str, Any]):
+def load_review_widget_state(keys: List[str], ctx: Dict[str, Any]) -> None:
     for k in keys:
         st.session_state[f"rev_{k}"] = "" if ctx.get(k) is None else str(ctx.get(k, ""))
 
 
-def go_review():
+def go_review() -> None:
     st.session_state["step"] = "review"
 
 
-def go_extract(clear_all: bool = False):
+def go_extract(clear_all: bool = False) -> None:
     st.session_state["step"] = "extract"
+
     if clear_all:
         st.session_state["tpl_name"] = ""
         st.session_state["out_prefix"] = ""
@@ -62,22 +63,39 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
 
     updated = dict(ctx)
 
-priority = [
-    "MANDANT_VORNAME", "MANDANT_NACHNAME", "MANDANT_STRASSE", "MANDANT_PLZ_ORT",
-    "UNFALL_DATUM", "UNFALL_ORT", "UNFALL_STRASSE",
-    "AKTENZEICHEN", "KENNZEICHEN", "FAHRZEUGTYP",
-    "VERSICHERUNG", "VER_STRASSE", "VER_ORT",
-    "SCHADENSNUMMER", "VORSTEUERBERECHTIGUNG",
-    "REPARATURKOSTEN", "WERTMINDERUNG", "WERTVERBESSERUNG",
-    "KOSTENPAUSCHALE", "GUTACHTERKOSTEN", "KOSTENSUMME_X",
-    "GENDERN1", "GENDERN2",
-    "SCHADENHERGANG"
-]
+    priority = [
+        "MANDANT_VORNAME",
+        "MANDANT_NACHNAME",
+        "MANDANT_STRASSE",
+        "MANDANT_PLZ_ORT",
+        "UNFALL_DATUM",
+        "UNFALL_ORT",
+        "UNFALL_STRASSE",
+        "AKTENZEICHEN",
+        "KENNZEICHEN",
+        "FAHRZEUGTYP",
+        "VERSICHERUNG",
+        "VER_STRASSE",
+        "VER_ORT",
+        "SCHADENSNUMMER",
+        "VORSTEUERBERECHTIGUNG",
+        "REPARATURKOSTEN",
+        "WERTMINDERUNG",
+        "WERTVERBESSERUNG",
+        "KOSTENPAUSCHALE",
+        "GUTACHTERKOSTEN",
+        "KOSTENSUMME_X",
+        "GENDERN1",
+        "GENDERN2",
+        "SCHADENHERGANG",
+    ]
 
-    keys_sorted = []
+    keys_sorted: List[str] = []
+
     for p in priority:
         if p in keys and p not in keys_sorted:
             keys_sorted.append(p)
+
     for k in keys:
         if k not in keys_sorted:
             keys_sorted.append(k)
@@ -101,8 +119,9 @@ priority = [
     return updated
 
 
-st.set_page_config(page_title="Gutachten → Schreiben (Review)", layout="wide")
+st.set_page_config(page_title="Gutachten → Schreiben", layout="wide")
 ensure_state()
+
 st.title("Gutachten → Word-Schreiben")
 
 template_label = st.selectbox("Vorlage wählen", list(TEMPLATES.keys()))
@@ -140,7 +159,10 @@ else:
         with st.expander("🔎 Debug: Extrahierte Werte", expanded=False):
             st.json(st.session_state.get("debug_extracted", {}))
 
-    updated_ctx = render_review_form(st.session_state["template_keys"], st.session_state["ctx"])
+    updated_ctx = render_review_form(
+        st.session_state["template_keys"],
+        st.session_state["ctx"],
+    )
     st.session_state["ctx"] = updated_ctx
 
     st.divider()
@@ -154,7 +176,10 @@ else:
     with c2:
         if st.button("🔄 Review zurücksetzen"):
             template_keys = set(st.session_state["template_keys"])
-            ctx = gx.build_context_for_template(template_keys, st.session_state["extracted"])
+            ctx = gx.build_context_for_template(
+                template_keys,
+                st.session_state["extracted"],
+            )
             st.session_state["ctx"] = ctx
             clear_review_widget_state()
             load_review_widget_state(st.session_state["template_keys"], ctx)
@@ -165,10 +190,11 @@ else:
             out_path = wb.render_word(
                 st.session_state["tpl_name"],
                 st.session_state["ctx"],
-                st.session_state["out_prefix"]
+                st.session_state["out_prefix"],
             )
 
             st.success(f"Word erstellt: {out_path.name}")
+
             with open(out_path, "rb") as f:
                 data = f.read()
 
@@ -178,4 +204,5 @@ else:
                 file_name=out_path.name,
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
+
             st.caption(f"Gespeichert in: {wb.OUTPUT_DIR}")
