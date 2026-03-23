@@ -72,7 +72,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     "KOSTENPAUSCHALE", "GUTACHTERKOSTEN", "KOSTENSUMME_X",
     "GENDERN1", "GENDERN2",
     "SCHADENHERGANG"
-]
+ ]
 
     keys_sorted = []
     for p in priority:
