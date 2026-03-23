@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Set, Dict, Any
 from datetime import datetime
+
 from docxtpl import DocxTemplate
+from docx import Document
+
 
 BASE_DIR = Path(__file__).resolve().parent
 VORLAGEN_DIR = BASE_DIR
@@ -23,8 +26,38 @@ def get_template_vars(tpl_name: str) -> Set[str]:
             f"Vorlage nicht gefunden: {tpl_path}\n"
             f"Vorhandene .docx im Repo: {[p.name for p in VORLAGEN_DIR.glob('*.docx')]}"
         )
+
     tpl = DocxTemplate(str(tpl_path))
     return set(tpl.get_undeclared_template_variables() or [])
+
+
+def _cell_text(cell) -> str:
+    parts = []
+    for p in cell.paragraphs:
+        txt = p.text.replace("\xa0", " ").strip()
+        if txt:
+            parts.append(txt)
+    return " ".join(parts).strip()
+
+
+def _row_is_empty(row) -> bool:
+    texts = [_cell_text(cell) for cell in row.cells]
+    return all(not t for t in texts)
+
+
+def _delete_row(row) -> None:
+    tr = row._tr
+    tr.getparent().remove(tr)
+
+
+def _cleanup_empty_table_rows(doc: Document) -> None:
+    for table in doc.tables:
+        rows = list(table.rows)
+
+        # rückwärts löschen, damit Indizes stabil bleiben
+        for row in reversed(rows):
+            if _row_is_empty(row):
+                _delete_row(row)
 
 
 def render_word(tpl_name: str, context: Dict[str, Any], out_prefix: str) -> Path:
@@ -35,12 +68,21 @@ def render_word(tpl_name: str, context: Dict[str, Any], out_prefix: str) -> Path
             f"Vorhandene .docx im Repo: {[p.name for p in VORLAGEN_DIR.glob('*.docx')]}"
         )
 
-    tpl = DocxTemplate(str(tpl_path))
     clean_context = {k: ("" if v is None else v) for k, v in context.items()}
+
+    tpl = DocxTemplate(str(tpl_path))
     tpl.render(clean_context)
 
     nachname = safe_filename(str(clean_context.get("MANDANT_NACHNAME", "Unbekannt") or "Unbekannt"))
     out_name = f"{out_prefix}_{nachname}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
     out_path = OUTPUT_DIR / out_name
+
+    # Erst normal rendern und speichern
     tpl.save(str(out_path))
+
+    # Danach leere Tabellenzeilen entfernen
+    doc = Document(str(out_path))
+    _cleanup_empty_table_rows(doc)
+    doc.save(str(out_path))
+
     return out_path
