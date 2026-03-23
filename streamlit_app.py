@@ -62,7 +62,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
 
     updated = dict(ctx)
 
-  priority = [
+priority = [
     "MANDANT_VORNAME", "MANDANT_NACHNAME", "MANDANT_STRASSE", "MANDANT_PLZ_ORT",
     "UNFALL_DATUM", "UNFALL_ORT", "UNFALL_STRASSE",
     "AKTENZEICHEN", "KENNZEICHEN", "FAHRZEUGTYP",
@@ -72,7 +72,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     "KOSTENPAUSCHALE", "GUTACHTERKOSTEN", "KOSTENSUMME_X",
     "GENDERN1", "GENDERN2",
     "SCHADENHERGANG"
- ]
+]
 
     keys_sorted = []
     for p in priority:
