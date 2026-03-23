@@ -74,7 +74,8 @@ def render_word(tpl_name: str, context: Dict[str, Any], out_prefix: str) -> Path
     tpl.render(clean_context)
 
     nachname = safe_filename(str(clean_context.get("MANDANT_NACHNAME", "Unbekannt") or "Unbekannt"))
-    out_name = f"{out_prefix}_{nachname}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
+    timestamp = datetime.now().strftime("%d-%m-%Y")
+    out_name = f"{"01-AS_an_VR"}_{timestamp}.docx"
     out_path = OUTPUT_DIR / out_name
 
     # Erst normal rendern und speichern
