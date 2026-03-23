@@ -313,8 +313,8 @@ data["KENNZEICHEN_MANDANT"] = _search_first(
 )
 
     # Rückwärtskompatibilität für alte Vorlagen
-    data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
-    data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
+    data["KENNZEICHEN_GEGNER"] = data["KENNZEICHEN_GEGNER"]
+    data["KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
         
     data["VERSICHERUNG"] = _search_first(
         p_bet,
@@ -490,29 +490,29 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
     ],
 )
 
-data["KENNZEICHEN_MANDANT"] = _search_first(
-    full,
-    [
-        r"Amtliches Kennzeichen\s+(.+?)\n",
-        r"Kennzeichen Mandant\s*[:\-]?\s*(.+?)\n",
-        r"Kennzeichen eigenes Fahrzeug\s*[:\-]?\s*(.+?)\n",
-    ],
-)
-
-# Rückwärtskompatibilität
-data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
-data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
-    data["VERSICHERUNG"] = _search_first(
+    data["KENNZEICHEN_MANDANT"] = _search_first(
         full,
         [
-            r"Versicherung Name\s+(.+?)\n",
-            r"Versicherung\s*[:\-]?\s*(.+?)\n",
+            r"Amtliches Kennzeichen\s+(.+?)\n",
+            r"Kennzeichen Mandant\s*[:\-]?\s*(.+?)\n",
+            r"Kennzeichen eigenes Fahrzeug\s*[:\-]?\s*(.+?)\n",
         ],
     )
-    data["VER_STRASSE"] = _search_first(
-        full,
-        [r"Versicherung Name\s+.+?\nStraße\s+(.+?)\nPLZ Ort"],
-    )
+    
+    # Rückwärtskompatibilität
+    
+    data["KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
+        data["VERSICHERUNG"] = _search_first(
+            full,
+            [
+                r"Versicherung Name\s+(.+?)\n",
+                r"Versicherung\s*[:\-]?\s*(.+?)\n",
+            ],
+        )
+        data["VER_STRASSE"] = _search_first(
+            full,
+            [r"Versicherung Name\s+.+?\nStraße\s+(.+?)\nPLZ Ort"],
+        )
     data["VER_ORT"] = _search_first(
         full,
         [
