@@ -16,8 +16,8 @@ from pypdf import PdfReader
 
 TITLE_PREFIXES = {"dr.", "dr", "prof.", "prof", "dipl.-ing.", "dipl.-ing", "ing.", "ing"}
 SURNAME_JOINERS = {"von", "van", "de", "del", "der", "den", "zu", "zur", "zum", "al", "el", "abi", "bin", "ibn"}
-
-
+heute=date.today()
+HEUTEDATUM = heute.strftime("%d.%m.%Y")
 def _clean_text(s: str) -> str:
     s = (s or "").replace("\xa0", " ").replace("\r", "\n")
     s = re.sub(r"[ \t]+", " ", s)
