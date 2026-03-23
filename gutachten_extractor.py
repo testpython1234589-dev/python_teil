@@ -5,7 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Any, Iterable, List
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 
 try:
