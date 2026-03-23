@@ -65,33 +65,36 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
 
     updated = dict(ctx)
 
-    priority = [
-        "MANDANT_VORNAME",
-        "MANDANT_NACHNAME",
-        "MANDANT_STRASSE",
-        "MANDANT_PLZ_ORT",
-        "UNFALL_DATUM",
-        "UNFALL_ORT",
-        "UNFALL_STRASSE",
-        "AKTENZEICHEN",
-        "KENNZEICHEN",
-        "FAHRZEUGTYP",
-        "VERSICHERUNG",
-        "VER_STRASSE",
-        "VER_ORT",
-        "SCHADENSNUMMER",
-        "VORSTEUERBERECHTIGUNG",
-        "REPARATURKOSTEN",
-        "WERTMINDERUNG",
-        "WERTVERBESSERUNG",
-        "KOSTENPAUSCHALE",
-        "GUTACHTERKOSTEN",
-        "KOSTENSUMME_X",
-        "GENDERN1",
-        "GENDERN2",
-        "SCHADENHERGANG",
-
-    ]
+priority = [
+    "MANDANT_VORNAME",
+    "MANDANT_NACHNAME",
+    "MANDANT_STRASSE",
+    "MANDANT_PLZ_ORT",
+    "UNFALL_DATUM",
+    "UNFALL_ORT",
+    "UNFALL_STRASSE",
+    "AKTENZEICHEN",
+    "KENNZEICHEN_MANDANT",
+    "KENNZEICHEN_GEGNER",
+    "KENNZEICHEN",
+    "FAHRZEUGTYP",
+    "VERSICHERUNG",
+    "VER_STRASSE",
+    "VER_ORT",
+    "SCHADENSNUMMER",
+    "VORSTEUERBERECHTIGUNG",
+    "REPARATURKOSTEN",
+    "WERTMINDERUNG",
+    "WERTVERBESSERUNG",
+    "KOSTENPAUSCHALE",
+    "GUTACHTERKOSTEN",
+    "KOSTENSUMME_X",
+    "GENDERN1",
+    "GENDERN2",
+    "HEUTEDATUM",
+    "FRIST_DATUM",
+    "SCHADENHERGANG",
+]
 
     keys_sorted: List[str] = []
 
