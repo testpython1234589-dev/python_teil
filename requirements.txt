@@ -3,4 +3,4 @@ docxtpl
 python-docx
 jinja2
 lxml
-pymupdf
+pypdf
