@@ -6,8 +6,7 @@ from typing import Dict, Any, List
 import word_backend as wb
 import gutachten_extractor as gx
 
-heute=date.today()
-HEUTEDATUM = heute.strftime("%d.%m.%Y")
+
 
 
 TEMPLATES = {
@@ -91,7 +90,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "GENDERN1",
         "GENDERN2",
         "SCHADENHERGANG",
-        "HEUTEDATUM":HEUTEDATUM
+
     ]
 
     keys_sorted: List[str] = []
