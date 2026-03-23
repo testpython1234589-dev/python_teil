@@ -4,13 +4,12 @@ import re
 from io import BytesIO
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, timedelta
 from typing import Dict, Any, Iterable, List
-from datetime import date, datetime, timedelta
-
 
 try:
-    import pymupdf as fitz  # preferred
-except ImportError:  # pragma: no cover
+    import pymupdf as fitz
+except ImportError:
     fitz = None
 
 from pypdf import PdfReader
@@ -18,8 +17,8 @@ from pypdf import PdfReader
 
 TITLE_PREFIXES = {"dr.", "dr", "prof.", "prof", "dipl.-ing.", "dipl.-ing", "ing.", "ing"}
 SURNAME_JOINERS = {"von", "van", "de", "del", "der", "den", "zu", "zur", "zum", "al", "el", "abi", "bin", "ibn"}
-heute=date.today()
-HEUTEDATUM = heute.strftime("%d.%m.%Y")
+
+
 def _clean_text(s: str) -> str:
     s = (s or "").replace("\xa0", " ").replace("\r", "\n")
     s = re.sub(r"[ \t]+", " ", s)
@@ -227,10 +226,11 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
     p_summary = _find_page(pages, ["Zusammenfassung", "Reparaturkosten ohne MwSt."], excludes=["Inhaltsverzeichnis"])
     p_invoice = _find_page(pages, ["Rechnung Nr.", "Gesamtbetrag ohne MwSt."])
     p_vehicle = _find_page(pages, ["Fahrzeugdaten", "Amtliches Kennzeichen"])
-    p_sh = _find_page(pages, ["Schadenhergang\nNach Angaben"], excludes=["Inhaltsverzeichnis"])
-    p_wbw = _find_page(pages, ["Wiederbeschaffungswert", "Minderwert:"], excludes=["Inhaltsverzeichnis"])
+    p_sh = _find_page(pages, ["Schadenhergang", "Nach Angaben"], excludes=["Inhaltsverzeichnis"])
+    p_wbw = _find_page(pages, ["Wiederbeschaffungswert"], excludes=["Inhaltsverzeichnis"])
     p_rest = _find_page(pages, ["Restwertermittlung"], excludes=["Inhaltsverzeichnis"])
     p_minder = _find_page(pages, ["Minderwertprotokoll"])
+
     p_calc = "\n".join(
         page for page in pages
         if (
@@ -280,6 +280,7 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
         p_bet,
         [r"Uhrzeit\s+(.+?)\nOrt"],
     )
+
     unfall_ort_raw = _search_first(
         p_bet,
         [r"\nOrt\s+(.+?)\nPolizeilich erfasst"],
@@ -298,27 +299,27 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
     )
 
     data["KENNZEICHEN_GEGNER"] = _search_first(
-    p_bet,
-    [
-        r"Unfallgegner Kennzeichen\s+(.+?)\nVersicherung Name",
-        r"Unfallgegner Kennzeichen\s+(.+?)\nName",
-    ],
-)
+        p_bet,
+        [
+            r"Unfallgegner Kennzeichen\s+(.+?)\nVersicherung Name",
+            r"Unfallgegner Kennzeichen\s+(.+?)\nName",
+        ],
+    )
 
-data["KENNZEICHEN_MANDANT"] = _search_first(
-    p_vehicle,
-    [
-        r"Amtliches Kennzeichen\s+(.+?)\n",
-    ],
-)
+    data["KENNZEICHEN_MANDANT"] = _search_first(
+        p_vehicle,
+        [
+            r"Amtliches Kennzeichen\s+(.+?)\n",
+        ],
+    )
 
-    # Rückwärtskompatibilität für alte Vorlagen
-    data["KENNZEICHEN_GEGNER"] = data["KENNZEICHEN_GEGNER"]
-    data["KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
-        
+    # Rückwärtskompatibilität
+    data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
+    data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
+
     data["VERSICHERUNG"] = _search_first(
         p_bet,
-        [r"Versicherung Name\s+(.+?)\nPLZ Ort"],
+        [r"Versicherung Name\s+(.+?)\n(?:Straße\s+.+?\n)?PLZ Ort"],
     )
     data["VER_STRASSE"] = _search_first(
         p_bet,
@@ -326,7 +327,7 @@ data["KENNZEICHEN_MANDANT"] = _search_first(
     )
     data["VER_ORT"] = _search_first(
         p_bet,
-        [r"Versicherung Name\s+.+?\nPLZ Ort\s+(.+?)\nTelefon"],
+        [r"Versicherung Name\s+.+?\n(?:Straße\s+.+?\n)?PLZ Ort\s+(.+?)\nTelefon"],
     )
     data["SCHADENSNUMMER"] = _search_first(
         p_bet,
@@ -345,10 +346,6 @@ data["KENNZEICHEN_MANDANT"] = _search_first(
     hersteller = _search_first(p_vehicle, [r"Hersteller\s+(.+?)\nModell"])
     modell = _search_first(p_vehicle, [r"Modell(?:/Haupttyp)?\s+(.+?)\n"])
     data["FAHRZEUGTYP"] = _clean_text(" ".join(x for x in [hersteller, modell] if x))
-    data["EIGENES_KENNZEICHEN"] = _search_first(
-        p_vehicle,
-        [r"Amtliches Kennzeichen\s+(.+?)\n"],
-    )
 
     data["SCHADENHERGANG"] = _search_first(
         p_sh,
@@ -457,6 +454,7 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
             r"Unfalldatum\s*[:\-]?\s*(\d{2}\.\d{2}\.\d{4})",
         ],
     )
+
     unfall_ort_raw = _search_first(
         full,
         [
@@ -483,12 +481,12 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
     ) or data["AKTENZEICHEN_POLIZEI"]
 
     data["KENNZEICHEN_GEGNER"] = _search_first(
-    full,
-    [
-        r"Unfallgegner Kennzeichen\s+(.+?)\n",
-        r"Gegner(?:fahrzeug)?\s+Kennzeichen\s+(.+?)\n",
-    ],
-)
+        full,
+        [
+            r"Unfallgegner Kennzeichen\s+(.+?)\n",
+            r"Gegner(?:fahrzeug)?\s+Kennzeichen\s+(.+?)\n",
+        ],
+    )
 
     data["KENNZEICHEN_MANDANT"] = _search_first(
         full,
@@ -498,21 +496,22 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
             r"Kennzeichen eigenes Fahrzeug\s*[:\-]?\s*(.+?)\n",
         ],
     )
-    
+
     # Rückwärtskompatibilität
-    
-    data["KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
-        data["VERSICHERUNG"] = _search_first(
-            full,
-            [
-                r"Versicherung Name\s+(.+?)\n",
-                r"Versicherung\s*[:\-]?\s*(.+?)\n",
-            ],
-        )
-        data["VER_STRASSE"] = _search_first(
-            full,
-            [r"Versicherung Name\s+.+?\nStraße\s+(.+?)\nPLZ Ort"],
-        )
+    data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
+    data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
+
+    data["VERSICHERUNG"] = _search_first(
+        full,
+        [
+            r"Versicherung Name\s+(.+?)\n",
+            r"Versicherung\s*[:\-]?\s*(.+?)\n",
+        ],
+    )
+    data["VER_STRASSE"] = _search_first(
+        full,
+        [r"Versicherung Name\s+.+?\nStraße\s+(.+?)\nPLZ Ort"],
+    )
     data["VER_ORT"] = _search_first(
         full,
         [
@@ -654,18 +653,21 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     total = (reparatur or Decimal("0")) + wm - wv + kp + (gutachter or Decimal("0"))
     d["KOSTENSUMME_X"] = _money_to_str(total)
 
-        # Datumsfelder für Word
     heute = datetime.now()
     frist = heute + timedelta(days=14)
 
     d["HEUTEDATUM"] = heute.strftime("%d.%m.%Y")
+    d["heutedatum"] = d["HEUTEDATUM"]
     d["FRIST_DATUM"] = frist.strftime("%d.%m.%Y")
-        d["KENNZEICHEN_GEGNER"] = str(
+    d["frist_datum"] = d["FRIST_DATUM"]
+    d["FIRST_DATUM"] = d["FRIST_DATUM"]
+    d["first_datum"] = d["FRIST_DATUM"]
+
+    d["KENNZEICHEN_GEGNER"] = str(
         extracted.get("KENNZEICHEN_GEGNER")
         or extracted.get("KENNZEICHEN")
         or ""
     )
-
     d["KENNZEICHEN_MANDANT"] = str(
         extracted.get("KENNZEICHEN_MANDANT")
         or extracted.get("EIGENES_KENNZEICHEN")
@@ -687,11 +689,24 @@ def extract_from_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
 
 
 def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any]) -> Dict[str, Any]:
-     aliases = {
-    "GESAMTSUMME": "KOSTENSUMME_X",
-    "KENNZEICHEN": "KENNZEICHEN_GEGNER",
-    "EIGENES_KENNZEICHEN": "KENNZEICHEN_MANDANT",
-}
+    aliases = {
+        "GESAMTSUMME": "KOSTENSUMME_X",
+        "KENNZEICHEN": "KENNZEICHEN_GEGNER",
+        "EIGENES_KENNZEICHEN": "KENNZEICHEN_MANDANT",
+    }
+
+    now = datetime.now()
+    heute_str = now.strftime("%d.%m.%Y")
+    frist_str = (now + timedelta(days=14)).strftime("%d.%m.%Y")
+
+    defaults = {
+        "HEUTEDATUM": heute_str,
+        "heutedatum": heute_str,
+        "FRIST_DATUM": frist_str,
+        "frist_datum": frist_str,
+        "FIRST_DATUM": frist_str,
+        "first_datum": frist_str,
+    }
 
     ctx: Dict[str, Any] = {}
     for key in template_keys:
@@ -699,6 +714,9 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
 
         if value in (None, "") and key in aliases:
             value = extracted.get(aliases[key], "")
+
+        if value in (None, "") and key in defaults:
+            value = defaults[key]
 
         ctx[key] = "" if value is None else str(value)
 
