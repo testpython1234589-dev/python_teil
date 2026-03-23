@@ -5,6 +5,8 @@ from io import BytesIO
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Any, Iterable, List
+from datetime import datetime, timedelta
+
 
 try:
     import pymupdf as fitz  # preferred
@@ -623,6 +625,13 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
 
     total = (reparatur or Decimal("0")) + wm - wv + kp + (gutachter or Decimal("0"))
     d["KOSTENSUMME_X"] = _money_to_str(total)
+
+        # Datumsfelder für Word
+    heute = datetime.now()
+    frist = heute + timedelta(days=14)
+
+    d["HEUTEDATUM"] = heute.strftime("%d.%m.%Y")
+    d["FRIST_DATUM"] = frist.strftime("%d.%m.%Y")
 
     return d
 
