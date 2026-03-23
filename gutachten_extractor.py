@@ -265,7 +265,7 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
         p_bet,
         [r"\nPLZ Ort\s+(.+?)\nVorsteuerabzug"],
     )
-    data["VORSTEUERBERECHTIGUNG"] = _normalize_yes_no(
+    data["VORSTEUERABZUG_RAW"] = _normalize_yes_no(
         _search_first(
             p_bet,
             [r"Vorsteuerabzug\s+(.+?)\nAnwalt"],
@@ -313,7 +313,6 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
         ],
     )
 
-    # Rückwärtskompatibilität
     data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
     data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
 
@@ -329,9 +328,14 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
         p_bet,
         [r"Versicherung Name\s+.+?\n(?:Straße\s+.+?\n)?PLZ Ort\s+(.+?)\nTelefon"],
     )
+
+    # Schadensnummer streng nur Nummer
     data["SCHADENSNUMMER"] = _search_first(
-        p_bet,
-        [r"Versicherungs-Nr\.?\s+(.+?)\nAuftrag Datum"],
+        p_bet + "\n" + p_invoice,
+        [
+            r"Versicherungs-Nr\.?\s+([A-Z0-9\/\-]{6,})\b",
+            r"Schadennummer\s+([A-Z0-9\/\-]{6,})\b",
+        ],
     )
 
     data["AKTENZEICHEN"] = _search_first(
@@ -623,10 +627,21 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["MANDANT_TITEL"] = titel
     d["MANDANT_VOLLNAME"] = " ".join(x for x in [titel, vorname, nachname] if x).strip()
 
-    d.update(_gender_fields(str(extracted.get("MANDANT_ANREDE", ""))))
+    gender = _gender_fields(str(extracted.get("MANDANT_ANREDE", "")))
+    d.update(gender)
 
-    vorsteuer = _normalize_yes_no(str(extracted.get("VORSTEUERBERECHTIGUNG", "")))
-    d["VORSTEUERBERECHTIGUNG"] = vorsteuer
+    vorsteuer_raw = _normalize_yes_no(str(extracted.get("VORSTEUERABZUG_RAW", extracted.get("VORSTEUERBERECHTIGUNG", ""))))
+    d["VORSTEUERABZUG_RAW"] = vorsteuer_raw
+
+    # Für die Vorlage: "Im Namen meines {{VORSTEUERBERECHTIGUNG}} zum Vorsteuerabzug berechtigten Mandanten"
+    # Ja -> ""
+    # Nein -> "nicht"
+    if vorsteuer_raw == "Ja":
+        d["VORSTEUERBERECHTIGUNG"] = ""
+    elif vorsteuer_raw == "Nein":
+        d["VORSTEUERBERECHTIGUNG"] = "nicht"
+    else:
+        d["VORSTEUERBERECHTIGUNG"] = ""
 
     rep_net = _parse_money(str(extracted.get("REPARATURKOSTEN_NETTO", "")))
     rep_br = _parse_money(str(extracted.get("REPARATURKOSTEN_BRUTTO", "")))
@@ -636,7 +651,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     wv = _parse_money(str(extracted.get("WERTVERBESSERUNG", ""))) or Decimal("0")
     kp = Decimal("25.00")
 
-    if vorsteuer == "Ja":
+    if vorsteuer_raw == "Ja":
         reparatur = rep_net if rep_net is not None else rep_br
         gutachter = gut_net if gut_net is not None else gut_br
     else:
@@ -656,12 +671,11 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     heute = datetime.now()
     frist = heute + timedelta(days=14)
 
-    d["HEUTEDATUM"] = heute.strftime("%d.%m.%Y")
-    d["heutedatum"] = d["HEUTEDATUM"]
+    # exakt passend zur Vorlage
+    d["HEUTDATUM"] = heute.strftime("%d.%m.%Y")
+    d["HEUTEDATUM"] = d["HEUTDATUM"]
     d["FRIST_DATUM"] = frist.strftime("%d.%m.%Y")
-    d["frist_datum"] = d["FRIST_DATUM"]
     d["FIRST_DATUM"] = d["FRIST_DATUM"]
-    d["first_datum"] = d["FRIST_DATUM"]
 
     d["KENNZEICHEN_GEGNER"] = str(
         extracted.get("KENNZEICHEN_GEGNER")
@@ -674,9 +688,33 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
         or ""
     )
 
-    # Alte Felder weiter unterstützen
-    d["KENNZEICHEN"] = d["KENNZEICHEN_GEGNER"]
+    # Vorlage nutzt {{KENNZEICHEN}} für das Mandantenfahrzeug
+    d["KENNZEICHEN"] = d["KENNZEICHEN_MANDANT"]
     d["EIGENES_KENNZEICHEN"] = d["KENNZEICHEN_MANDANT"]
+
+    # Vorlage hat Tippfehler / Sonderfelder
+    d["VRSICHERUNG"] = str(extracted.get("VERSICHERUNG", ""))
+    d["GENDERN"] = gender.get("GENDERN1", "")
+    d["GENDERN2"] = gender.get("GENDERN2", "")
+
+    if wv > 0:
+        d["WERTVERBESSERUNG_NAME"] = "Wertverbesserung"
+        d["WERTBESSERUNG_BETRAG"] = _money_to_str(wv)
+    else:
+        d["WERTVERBESSERUNG_NAME"] = ""
+        d["WERTBESSERUNG_BETRAG"] = ""
+
+    if wm > 0:
+        d["WERTMINDERUNG_NAME"] = "Wertminderung"
+        d["WERTMINDERUNG_BETRAG"] = _money_to_str(wm)
+    else:
+        d["WERTMINDERUNG_NAME"] = ""
+        d["WERTMINDERUNG_BETRAG"] = ""
+
+    # Schadensnummer sauber nachbereinigen
+    schadensnummer = str(extracted.get("SCHADENSNUMMER", "")).strip()
+    m = re.search(r"[A-Z0-9\/\-]{6,}", schadensnummer)
+    d["SCHADENSNUMMER"] = m.group(0) if m else ""
 
     return d
 
@@ -691,8 +729,12 @@ def extract_from_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
 def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any]) -> Dict[str, Any]:
     aliases = {
         "GESAMTSUMME": "KOSTENSUMME_X",
-        "KENNZEICHEN": "KENNZEICHEN_GEGNER",
+        "VRSICHERUNG": "VERSICHERUNG",
+        "GENDERN": "GENDERN1",
+        "KENNZEICHEN": "KENNZEICHEN_MANDANT",
         "EIGENES_KENNZEICHEN": "KENNZEICHEN_MANDANT",
+        "HEUTDATUM": "HEUTEDATUM",
+        "FIRST_DATUM": "FRIST_DATUM",
     }
 
     now = datetime.now()
@@ -700,12 +742,10 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
     frist_str = (now + timedelta(days=14)).strftime("%d.%m.%Y")
 
     defaults = {
+        "HEUTDATUM": heute_str,
         "HEUTEDATUM": heute_str,
-        "heutedatum": heute_str,
         "FRIST_DATUM": frist_str,
-        "frist_datum": frist_str,
         "FIRST_DATUM": frist_str,
-        "first_datum": frist_str,
     }
 
     ctx: Dict[str, Any] = {}
