@@ -36,9 +36,10 @@ def render_word(tpl_name: str, context: Dict[str, Any], out_prefix: str) -> Path
         )
 
     tpl = DocxTemplate(str(tpl_path))
-    tpl.render(context)
+    clean_context = {k: ("" if v is None else v) for k, v in context.items()}
+    tpl.render(clean_context)
 
-    nachname = safe_filename(str(context.get("MANDANT_NACHNAME", "Unbekannt") or "Unbekannt"))
+    nachname = safe_filename(str(clean_context.get("MANDANT_NACHNAME", "Unbekannt") or "Unbekannt"))
     out_name = f"{out_prefix}_{nachname}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
     out_path = OUTPUT_DIR / out_name
     tpl.save(str(out_path))
