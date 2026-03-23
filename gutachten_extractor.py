@@ -312,10 +312,10 @@ data["KENNZEICHEN_MANDANT"] = _search_first(
     ],
 )
 
-# Rückwärtskompatibilität für alte Vorlagen
-data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
-data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
-    )
+    # Rückwärtskompatibilität für alte Vorlagen
+    data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
+    data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
+        
     data["VERSICHERUNG"] = _search_first(
         p_bet,
         [r"Versicherung Name\s+(.+?)\nPLZ Ort"],
