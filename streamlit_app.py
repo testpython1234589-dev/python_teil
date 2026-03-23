@@ -25,14 +25,35 @@ def ensure_state():
     st.session_state.setdefault("ctx", {})
     st.session_state.setdefault("template_keys", [])
     st.session_state.setdefault("extracted", {})
+    st.session_state.setdefault("debug_extracted", {})
+
+
+def clear_review_widget_state():
+    for key in list(st.session_state.keys()):
+        if key.startswith("rev_"):
+            del st.session_state[key]
+
+
+def load_review_widget_state(keys: List[str], ctx: Dict[str, Any]):
+    for k in keys:
+        st.session_state[f"rev_{k}"] = "" if ctx.get(k) is None else str(ctx.get(k, ""))
 
 
 def go_review():
     st.session_state["step"] = "review"
 
 
-def go_extract():
+def go_extract(clear_all: bool = False):
     st.session_state["step"] = "extract"
+    if clear_all:
+        st.session_state["tpl_name"] = ""
+        st.session_state["out_prefix"] = ""
+        st.session_state["template_label"] = ""
+        st.session_state["ctx"] = {}
+        st.session_state["template_keys"] = []
+        st.session_state["extracted"] = {}
+        st.session_state["debug_extracted"] = {}
+        clear_review_widget_state()
 
 
 def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -60,20 +81,27 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
             keys_sorted.append(k)
 
     cols = st.columns(3)
+
     for i, k in enumerate(keys_sorted):
         col = cols[i % 3]
-        val = "" if updated.get(k) is None else str(updated.get(k, ""))
+        widget_key = f"rev_{k}"
+
+        if widget_key not in st.session_state:
+            st.session_state[widget_key] = "" if ctx.get(k) is None else str(ctx.get(k, ""))
+
         if k in {"SCHADENHERGANG", "SONSTIGE"}:
-            updated[k] = col.text_area(k, value=val, height=160, key=f"rev_{k}")
+            col.text_area(k, height=160, key=widget_key)
         else:
-            updated[k] = col.text_input(k, value=val, key=f"rev_{k}")
+            col.text_input(k, key=widget_key)
+
+        updated[k] = st.session_state[widget_key]
 
     return updated
 
 
 st.set_page_config(page_title="Gutachten → Schreiben (Review)", layout="wide")
 ensure_state()
-st.title("Gutachten → Word-Schreiben (ohne KI) + Überprüf-Seite (seitenbasiert)")
+st.title("Gutachten → Word-Schreiben")
 
 template_label = st.selectbox("Vorlage wählen", list(TEMPLATES.keys()))
 tpl_name, out_prefix = TEMPLATES[template_label]
@@ -95,30 +123,41 @@ if st.session_state["step"] == "extract":
         st.session_state["template_keys"] = template_keys
         st.session_state["ctx"] = ctx
         st.session_state["extracted"] = extracted
+        st.session_state["debug_extracted"] = extracted
 
-        if show_debug:
-            with st.expander("🔎 Debug: Extrahierte Werte", expanded=True):
-                st.json(extracted)
+        clear_review_widget_state()
+        load_review_widget_state(template_keys, ctx)
 
         go_review()
         st.rerun()
 
 else:
     st.subheader(f"Vorlage: {st.session_state['template_label']}")
+
+    if show_debug:
+        with st.expander("🔎 Debug: Extrahierte Werte", expanded=False):
+            st.json(st.session_state.get("debug_extracted", {}))
+
     updated_ctx = render_review_form(st.session_state["template_keys"], st.session_state["ctx"])
     st.session_state["ctx"] = updated_ctx
 
     st.divider()
     c1, c2, c3 = st.columns(3)
+
     with c1:
         if st.button("⬅️ Zurück (neu extrahieren)"):
-            go_extract()
+            go_extract(clear_all=True)
             st.rerun()
+
     with c2:
         if st.button("🔄 Review zurücksetzen"):
             template_keys = set(st.session_state["template_keys"])
-            st.session_state["ctx"] = gx.build_context_for_template(template_keys, st.session_state["extracted"])
+            ctx = gx.build_context_for_template(template_keys, st.session_state["extracted"])
+            st.session_state["ctx"] = ctx
+            clear_review_widget_state()
+            load_review_widget_state(st.session_state["template_keys"], ctx)
             st.rerun()
+
     with c3:
         if st.button("✅ Word endgültig erzeugen", type="primary"):
             out_path = wb.render_word(
@@ -129,10 +168,12 @@ else:
 
             st.success(f"Word erstellt: {out_path.name}")
             with open(out_path, "rb") as f:
-                st.download_button(
-                    "⬇️ Download .docx",
-                    data=f,
-                    file_name=out_path.name,
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                )
+                data = f.read()
+
+            st.download_button(
+                "⬇️ Download .docx",
+                data=data,
+                file_name=out_path.name,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
             st.caption(f"Gespeichert in: {wb.OUTPUT_DIR}")
