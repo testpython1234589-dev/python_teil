@@ -297,9 +297,24 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
         [r"Polizeibehörde\s+(.+?)\nBesichtigung Datum"],
     )
 
-    data["KENNZEICHEN"] = _search_first(
-        p_bet,
-        [r"Unfallgegner Kennzeichen\s+(.+?)\nVersicherung Name"],
+    data["KENNZEICHEN_GEGNER"] = _search_first(
+    p_bet,
+    [
+        r"Unfallgegner Kennzeichen\s+(.+?)\nVersicherung Name",
+        r"Unfallgegner Kennzeichen\s+(.+?)\nName",
+    ],
+)
+
+data["KENNZEICHEN_MANDANT"] = _search_first(
+    p_vehicle,
+    [
+        r"Amtliches Kennzeichen\s+(.+?)\n",
+    ],
+)
+
+# Rückwärtskompatibilität für alte Vorlagen
+data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
+data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
     )
     data["VERSICHERUNG"] = _search_first(
         p_bet,
@@ -467,13 +482,26 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
         ],
     ) or data["AKTENZEICHEN_POLIZEI"]
 
-    data["KENNZEICHEN"] = _search_first(
-        full,
-        [
-            r"Unfallgegner Kennzeichen\s+(.+?)\n",
-            r"Gegner(?:fahrzeug)?\s+Kennzeichen\s+(.+?)\n",
-        ],
-    )
+    data["KENNZEICHEN_GEGNER"] = _search_first(
+    full,
+    [
+        r"Unfallgegner Kennzeichen\s+(.+?)\n",
+        r"Gegner(?:fahrzeug)?\s+Kennzeichen\s+(.+?)\n",
+    ],
+)
+
+data["KENNZEICHEN_MANDANT"] = _search_first(
+    full,
+    [
+        r"Amtliches Kennzeichen\s+(.+?)\n",
+        r"Kennzeichen Mandant\s*[:\-]?\s*(.+?)\n",
+        r"Kennzeichen eigenes Fahrzeug\s*[:\-]?\s*(.+?)\n",
+    ],
+)
+
+# Rückwärtskompatibilität
+data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
+data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
     data["VERSICHERUNG"] = _search_first(
         full,
         [
@@ -632,6 +660,21 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
 
     d["HEUTEDATUM"] = heute.strftime("%d.%m.%Y")
     d["FRIST_DATUM"] = frist.strftime("%d.%m.%Y")
+        d["KENNZEICHEN_GEGNER"] = str(
+        extracted.get("KENNZEICHEN_GEGNER")
+        or extracted.get("KENNZEICHEN")
+        or ""
+    )
+
+    d["KENNZEICHEN_MANDANT"] = str(
+        extracted.get("KENNZEICHEN_MANDANT")
+        or extracted.get("EIGENES_KENNZEICHEN")
+        or ""
+    )
+
+    # Alte Felder weiter unterstützen
+    d["KENNZEICHEN"] = d["KENNZEICHEN_GEGNER"]
+    d["EIGENES_KENNZEICHEN"] = d["KENNZEICHEN_MANDANT"]
 
     return d
 
@@ -644,9 +687,11 @@ def extract_from_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
 
 
 def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any]) -> Dict[str, Any]:
-    aliases = {
-        "GESAMTSUMME": "KOSTENSUMME_X",
-    }
+     aliases = {
+    "GESAMTSUMME": "KOSTENSUMME_X",
+    "KENNZEICHEN": "KENNZEICHEN_GEGNER",
+    "EIGENES_KENNZEICHEN": "KENNZEICHEN_MANDANT",
+}
 
     ctx: Dict[str, Any] = {}
     for key in template_keys:
