@@ -104,11 +104,13 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     keys_sorted: List[str] = []
-
+    
+    # Prioritätsfelder IMMER anzeigen, auch wenn sie in der Vorlage evtl. fehlen
     for p in priority:
-        if p in keys and p not in keys_sorted:
+        if p not in keys_sorted:
             keys_sorted.append(p)
-
+    
+    # Danach alle echten Template-Felder ergänzen
     for k in keys:
         if k not in keys_sorted:
             keys_sorted.append(k)
