@@ -742,32 +742,36 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["WBW"] = _money_to_str(wbw)
     d["KOSTENPAUSCHALE"] = _money_to_str(kp)
 
-    d["ABMELDEKOSTEN"] = _money_to_str(abm)
-    d["UMMELDEKOSTEN"] = _money_to_str(umm)
-    d["SONSTIGE_SONDERKOSTEN"] = _money_to_str(son)
+    # Totalschaden-Vorlage
+    meldungskosten = abm + umm
+    d["MELDUNGSKOSTEN"] = _money_to_str(meldungskosten)
 
-    if abm > 0:
-        d["ABMELDEKOSTEN_NAME"] = "Abmeldekosten"
-        d["ABMELDEKOSTEN_BETRAG"] = _money_to_str(abm)
+    d["ZUSATZKOSTEN_BEZEICHNUNG1"] = str(extracted.get("ZUSATZKOSTEN1_NAME", "") or "")
+    d["ZUSATZKOSTEN_BETRAG1"] = _money_to_str(zk1) if zk1 > 0 else ""
+
+    d["ZUSATZKOSTEN_BEZEICHNUNG2"] = str(extracted.get("ZUSATZKOSTEN2_NAME", "") or "")
+    d["ZUSATZKOSTEN_BETRAG2"] = _money_to_str(zk2) if zk2 > 0 else ""
+
+    d["ZUSATZKOSTEN_BEZEICHNUNG3"] = str(extracted.get("ZUSATZKOSTEN3_NAME", "") or "")
+    d["ZUSATZKOSTEN_BETRAG3"] = _money_to_str(zk3) if zk3 > 0 else ""
+
+    # Wiederbeschaffungswertaufwand = WBW - Restwert
+    if wbw is not None and restwert is not None:
+        d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = _money_to_str(wbw - restwert)
+    elif wbw is not None:
+        d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = _money_to_str(wbw)
     else:
-        d["ABMELDEKOSTEN_NAME"] = ""
-        d["ABMELDEKOSTEN_BETRAG"] = ""
+        d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
 
-    if umm > 0:
-        d["UMMELDEKOSTEN_NAME"] = "Ummeldekosten"
-        d["UMMELDEKOSTEN_BETRAG"] = _money_to_str(umm)
-    else:
-        d["UMMELDEKOSTEN_NAME"] = ""
-        d["UMMELDEKOSTEN_BETRAG"] = ""
-
-    if son > 0:
-        d["SONSTIGE_SONDERKOSTEN_NAME"] = "Sonderkosten"
-        d["SONSTIGE_SONDERKOSTEN_BETRAG"] = _money_to_str(son)
-    else:
-        d["SONSTIGE_SONDERKOSTEN_NAME"] = ""
-        d["SONSTIGE_SONDERKOSTEN_BETRAG"] = ""
-
-    total = (reparatur or Decimal("0")) + wm - wv + kp + abm + umm + son + (gutachter or Decimal("0"))
+    total = (
+        (gutachter or Decimal("0"))
+        + kp
+        + meldungskosten
+        + zk1
+        + zk2
+        + zk3
+        + (wbw - restwert if wbw is not None and restwert is not None else Decimal("0"))
+    )
     d["KOSTENSUMME_X"] = _money_to_str(total)
 
     heute = datetime.now()
@@ -851,6 +855,14 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
         "SONSTIGE_SONDERKOSTEN": "SONSTIGE_SONDERKOSTEN",
         "SONSTIGE_SONDERKOSTEN_NAME": "SONSTIGE_SONDERKOSTEN_NAME",
         "SONSTIGE_SONDERKOSTEN_BETRAG": "SONSTIGE_SONDERKOSTEN_BETRAG",
+        "WIEDERBESCHAFFUNGSWERTAUFWAND": "WIEDERBESCHAFFUNGSWERTAUFWAND",
+        "MELDUNGSKOSTEN": "MELDUNGSKOSTEN",
+        "ZUSATZKOSTEN_BEZEICHNUNG1": "ZUSATZKOSTEN_BEZEICHNUNG1",
+        "ZUSATZKOSTEN_BETRAG1": "ZUSATZKOSTEN_BETRAG1",
+        "ZUSATZKOSTEN_BEZEICHNUNG2": "ZUSATZKOSTEN_BEZEICHNUNG2",
+        "ZUSATZKOSTEN_BETRAG2": "ZUSATZKOSTEN_BETRAG2",
+        "ZUSATZKOSTEN_BEZEICHNUNG3": "ZUSATZKOSTEN_BEZEICHNUNG3",
+        "ZUSATZKOSTEN_BETRAG3": "ZUSATZKOSTEN_BETRAG3",
     }
 
     now = datetime.now()
