@@ -4,7 +4,7 @@ import streamlit as st
 from typing import Dict, Any, List
 
 import word_backend as wb
-import gutachten_extractor as gx
+import gutachten_service as gs
 
 
 TEMPLATES = {
@@ -14,6 +14,11 @@ TEMPLATES = {
     "Konkret unter WBW": ("vorlage_konkret_unter_wbw-1.docx", "konkret_unter_wbw"),
     "Totalschaden (fiktiv)": ("vorlage_totalschaden_fiktiv-1.docx", "totalschaden_fiktiv"),
     "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1.docx", "schreibentotalschaden"),
+}
+
+GUTACHTER = {
+    "GutachterExpress": "gutachterexpress",
+    "Schnur": "schnur",
 }
 
 
@@ -103,10 +108,6 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "SCHADENHERGANG",
     ]
 
-    # Nur Felder anzeigen, die:
-    # - in der Vorlage vorkommen ODER
-    # - tatsächlich Werte haben ODER
-    # - explizit immer sichtbar sein sollen
     visible_keys = set(keys) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER"}
 
     keys_sorted: List[str] = []
@@ -147,6 +148,9 @@ ensure_state()
 
 st.title("Gutachten → Word-Schreiben")
 
+gutachter_label = st.selectbox("Gutachter wählen", list(GUTACHTER.keys()))
+gutachter_key = GUTACHTER[gutachter_label]
+
 template_label = st.selectbox("Vorlage wählen", list(TEMPLATES.keys()))
 tpl_name, out_prefix = TEMPLATES[template_label]
 
@@ -157,9 +161,9 @@ if st.session_state["step"] == "extract":
     if st.button("🔎 Werte aus PDF extrahieren", type="primary", disabled=(pdf_file is None)):
         pdf_bytes = pdf_file.read()
 
-        extracted = gx.extract_from_pdf_bytes(pdf_bytes)
+        extracted = gs.extract_from_pdf_bytes(pdf_bytes, gutachter_key)
         template_keys = sorted(list(wb.get_template_vars(tpl_name)))
-        ctx = gx.build_context_for_template(set(template_keys), extracted)
+        ctx = gs.build_context(set(template_keys), extracted)
 
         st.session_state["tpl_name"] = tpl_name
         st.session_state["out_prefix"] = out_prefix
@@ -199,13 +203,16 @@ else:
     with c2:
         if st.button("🔄 Review zurücksetzen"):
             template_keys = set(st.session_state["template_keys"])
-            ctx = gx.build_context_for_template(
+            ctx = gs.build_context(
                 template_keys,
                 st.session_state["extracted"],
             )
             st.session_state["ctx"] = ctx
             clear_review_widget_state()
-            load_review_widget_state(list(set(st.session_state["template_keys"]) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER"}), ctx)
+            load_review_widget_state(
+                list(set(st.session_state["template_keys"]) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER"}),
+                ctx,
+            )
             st.rerun()
 
     with c3:
