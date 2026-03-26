@@ -719,9 +719,12 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     wm = _parse_money(str(extracted.get("WERTMINDERUNG", ""))) or Decimal("0")
     wv = _parse_money(str(extracted.get("WERTVERBESSERUNG", ""))) or Decimal("0")
     wbw = _parse_money(str(extracted.get("WBW", "")))
+    restwert = _parse_money(str(extracted.get("RESTWERT", "")))
     abm = _parse_money(str(extracted.get("ABMELDEKOSTEN", ""))) or Decimal("0")
     umm = _parse_money(str(extracted.get("UMMELDEKOSTEN", ""))) or Decimal("0")
-    son = _parse_money(str(extracted.get("SONSTIGE_SONDERKOSTEN", ""))) or Decimal("0")
+    zk1 = _parse_money(str(extracted.get("ZUSATZKOSTEN1_BETRAG", ""))) or Decimal("0")
+    zk2 = _parse_money(str(extracted.get("ZUSATZKOSTEN2_BETRAG", ""))) or Decimal("0")
+    zk3 = _parse_money(str(extracted.get("ZUSATZKOSTEN3_BETRAG", ""))) or Decimal("0")
     kp = Decimal("25.00")
 
     if vorsteuer_raw == "Ja":
