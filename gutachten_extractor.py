@@ -411,28 +411,34 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
     data["ABMELDEKOSTEN"] = _extract_money(
         full,
         [
-            r"Abmeldekosten\s+([0-9\., ]+)",
-            r"Abmeldekosten[: ]+([0-9\., ]+)",
+            r"\bAbmeldekosten\b[: ]+([0-9\., ]+)",
         ],
     )
     data["UMMELDEKOSTEN"] = _extract_money(
         full,
         [
-            r"Ummeldekosten\s+([0-9\., ]+)",
-            r"Ummeldekosten[: ]+([0-9\., ]+)",
+            r"\bUmmeldekosten\b[: ]+([0-9\., ]+)",
+        ],
+    )
+    data["MELDUNGSKOSTEN_RAW"] = _extract_money(
+        full,
+        [
+            r"Abmelde\s*[-/]\s*Ummeldekosten[: ]+([0-9\., ]+)",
+            r"An\s*[-/]\s*Abmeldekosten[: ]+([0-9\., ]+)",
+            r"Meldekosten[: ]+([0-9\., ]+)",
+            r"Ab- und Ummeldekosten[: ]+([0-9\., ]+)",
         ],
     )
 
-    data["ZUSATZKOSTEN1_NAME"] = "Sonderkosten"
-    data["ZUSATZKOSTEN1_BETRAG"] = _extract_money(
+    zk1_betrag = _extract_money(
         full,
         [
-            r"Sonderkosten\s+([0-9\., ]+)",
-            r"Zusatzkosten\s+([0-9\., ]+)",
-            r"Sonderkosten[: ]+([0-9\., ]+)",
-            r"Zusatzkosten[: ]+([0-9\., ]+)",
+            r"\bSonderkosten\b[: ]+([0-9\., ]+)",
+            r"\bZusatzkosten\b[: ]+([0-9\., ]+)",
         ],
     )
+    data["ZUSATZKOSTEN1_NAME"] = "Sonderkosten" if zk1_betrag else ""
+    data["ZUSATZKOSTEN1_BETRAG"] = zk1_betrag
     data["ZUSATZKOSTEN2_NAME"] = ""
     data["ZUSATZKOSTEN2_BETRAG"] = ""
     data["ZUSATZKOSTEN3_NAME"] = ""
@@ -632,28 +638,34 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
     data["ABMELDEKOSTEN"] = _extract_money(
         full,
         [
-            r"Abmeldekosten\s+([0-9\., ]+)",
-            r"Abmeldekosten[: ]+([0-9\., ]+)",
+            r"\bAbmeldekosten\b[: ]+([0-9\., ]+)",
         ],
     )
     data["UMMELDEKOSTEN"] = _extract_money(
         full,
         [
-            r"Ummeldekosten\s+([0-9\., ]+)",
-            r"Ummeldekosten[: ]+([0-9\., ]+)",
+            r"\bUmmeldekosten\b[: ]+([0-9\., ]+)",
+        ],
+    )
+    data["MELDUNGSKOSTEN_RAW"] = _extract_money(
+        full,
+        [
+            r"Abmelde\s*[-/]\s*Ummeldekosten[: ]+([0-9\., ]+)",
+            r"An\s*[-/]\s*Abmeldekosten[: ]+([0-9\., ]+)",
+            r"Meldekosten[: ]+([0-9\., ]+)",
+            r"Ab- und Ummeldekosten[: ]+([0-9\., ]+)",
         ],
     )
 
-    data["ZUSATZKOSTEN1_NAME"] = "Sonderkosten"
-    data["ZUSATZKOSTEN1_BETRAG"] = _extract_money(
+    zk1_betrag = _extract_money(
         full,
         [
-            r"Sonderkosten\s+([0-9\., ]+)",
-            r"Zusatzkosten\s+([0-9\., ]+)",
-            r"Sonderkosten[: ]+([0-9\., ]+)",
-            r"Zusatzkosten[: ]+([0-9\., ]+)",
+            r"\bSonderkosten\b[: ]+([0-9\., ]+)",
+            r"\bZusatzkosten\b[: ]+([0-9\., ]+)",
         ],
     )
+    data["ZUSATZKOSTEN1_NAME"] = "Sonderkosten" if zk1_betrag else ""
+    data["ZUSATZKOSTEN1_BETRAG"] = zk1_betrag
     data["ZUSATZKOSTEN2_NAME"] = ""
     data["ZUSATZKOSTEN2_BETRAG"] = ""
     data["ZUSATZKOSTEN3_NAME"] = ""
@@ -706,8 +718,9 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     wv = _parse_money(str(extracted.get("WERTVERBESSERUNG", ""))) or Decimal("0")
     wbw = _parse_money(str(extracted.get("WBW", "")))
     restwert = _parse_money(str(extracted.get("RESTWERT", "")))
-    abm = _parse_money(str(extracted.get("ABMELDEKOSTEN", ""))) or Decimal("0")
-    umm = _parse_money(str(extracted.get("UMMELDEKOSTEN", ""))) or Decimal("0")
+    abm = _parse_money(str(extracted.get("ABMELDEKOSTEN", "")))
+    umm = _parse_money(str(extracted.get("UMMELDEKOSTEN", "")))
+    meldung_raw = _parse_money(str(extracted.get("MELDUNGSKOSTEN_RAW", "")))
     zk1 = _parse_money(str(extracted.get("ZUSATZKOSTEN1_BETRAG", ""))) or Decimal("0")
     zk2 = _parse_money(str(extracted.get("ZUSATZKOSTEN2_BETRAG", ""))) or Decimal("0")
     zk3 = _parse_money(str(extracted.get("ZUSATZKOSTEN3_BETRAG", ""))) or Decimal("0")
@@ -728,16 +741,20 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["WBW"] = _money_to_str(wbw)
     d["KOSTENPAUSCHALE"] = _money_to_str(kp)
 
-    meldungskosten = abm + umm
-    d["MELDUNGSKOSTEN"] = _money_to_str(meldungskosten)
+    if meldung_raw is not None:
+        meldungskosten = meldung_raw
+    else:
+        meldungskosten = (abm or Decimal("0")) + (umm or Decimal("0"))
 
-    d["ZUSATZKOSTEN_BEZEICHNUNG1"] = str(extracted.get("ZUSATZKOSTEN1_NAME", "") or "")
+    d["MELDUNGSKOSTEN"] = _money_to_str(meldungskosten) if meldungskosten > 0 else ""
+
+    d["ZUSATZKOSTEN_BEZEICHNUNG1"] = str(extracted.get("ZUSATZKOSTEN1_NAME", "") or "") if zk1 > 0 else ""
     d["ZUSATZKOSTEN_BETRAG1"] = _money_to_str(zk1) if zk1 > 0 else ""
 
-    d["ZUSATZKOSTEN_BEZEICHNUNG2"] = str(extracted.get("ZUSATZKOSTEN2_NAME", "") or "")
+    d["ZUSATZKOSTEN_BEZEICHNUNG2"] = str(extracted.get("ZUSATZKOSTEN2_NAME", "") or "") if zk2 > 0 else ""
     d["ZUSATZKOSTEN_BETRAG2"] = _money_to_str(zk2) if zk2 > 0 else ""
 
-    d["ZUSATZKOSTEN_BEZEICHNUNG3"] = str(extracted.get("ZUSATZKOSTEN3_NAME", "") or "")
+    d["ZUSATZKOSTEN_BEZEICHNUNG3"] = str(extracted.get("ZUSATZKOSTEN3_NAME", "") or "") if zk3 > 0 else ""
     d["ZUSATZKOSTEN_BETRAG3"] = _money_to_str(zk3) if zk3 > 0 else ""
 
     if wbw is not None and restwert is not None:
@@ -750,7 +767,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     total = (
         (gutachter or Decimal("0"))
         + kp
-        + meldungskosten
+        + (meldungskosten or Decimal("0"))
         + zk1
         + zk2
         + zk3
