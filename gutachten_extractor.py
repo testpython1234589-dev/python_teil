@@ -330,7 +330,6 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
         [r"Versicherung Name\s+.+?\n(?:Straße\s+.+?\n)?PLZ Ort\s+(.+?)\nTelefon"],
     )
 
-    # Schadensnummer streng nur Nummer
     data["SCHADENSNUMMER"] = _search_first(
         p_bet + "\n" + p_invoice,
         [
@@ -407,17 +406,15 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
     data["GUTACHTERKOSTEN_BRUTTO"] = _extract_money(
         p_invoice,
         [r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+)"],
-    
     )
 
-        data["ABMELDEKOSTEN"] = _extract_money(
+    data["ABMELDEKOSTEN"] = _extract_money(
         full,
         [
             r"Abmeldekosten\s+([0-9\., ]+)",
             r"Abmeldekosten[: ]+([0-9\., ]+)",
         ],
     )
-
     data["UMMELDEKOSTEN"] = _extract_money(
         full,
         [
@@ -436,10 +433,8 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
             r"Zusatzkosten[: ]+([0-9\., ]+)",
         ],
     )
-
     data["ZUSATZKOSTEN2_NAME"] = ""
     data["ZUSATZKOSTEN2_BETRAG"] = ""
-
     data["ZUSATZKOSTEN3_NAME"] = ""
     data["ZUSATZKOSTEN3_BETRAG"] = ""
 
@@ -526,7 +521,6 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
             r"Gegner(?:fahrzeug)?\s+Kennzeichen\s+(.+?)\n",
         ],
     )
-
     data["KENNZEICHEN_MANDANT"] = _search_first(
         full,
         [
@@ -536,7 +530,6 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
         ],
     )
 
-    # Rückwärtskompatibilität
     data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
     data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
 
@@ -636,15 +629,13 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
         ],
     )
 
-
-        data["ABMELDEKOSTEN"] = _extract_money(
+    data["ABMELDEKOSTEN"] = _extract_money(
         full,
         [
             r"Abmeldekosten\s+([0-9\., ]+)",
             r"Abmeldekosten[: ]+([0-9\., ]+)",
         ],
     )
-
     data["UMMELDEKOSTEN"] = _extract_money(
         full,
         [
@@ -663,10 +654,8 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
             r"Zusatzkosten[: ]+([0-9\., ]+)",
         ],
     )
-
     data["ZUSATZKOSTEN2_NAME"] = ""
     data["ZUSATZKOSTEN2_BETRAG"] = ""
-
     data["ZUSATZKOSTEN3_NAME"] = ""
     data["ZUSATZKOSTEN3_BETRAG"] = ""
 
@@ -702,9 +691,6 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     vorsteuer_raw = _normalize_yes_no(str(extracted.get("VORSTEUERABZUG_RAW", extracted.get("VORSTEUERBERECHTIGUNG", ""))))
     d["VORSTEUERABZUG_RAW"] = vorsteuer_raw
 
-    # Für die Vorlage: "Im Namen meines {{VORSTEUERBERECHTIGUNG}} zum Vorsteuerabzug berechtigten Mandanten"
-    # Ja -> ""
-    # Nein -> "nicht"
     if vorsteuer_raw == "Ja":
         d["VORSTEUERBERECHTIGUNG"] = ""
     elif vorsteuer_raw == "Nein":
@@ -742,7 +728,6 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["WBW"] = _money_to_str(wbw)
     d["KOSTENPAUSCHALE"] = _money_to_str(kp)
 
-    # Totalschaden-Vorlage
     meldungskosten = abm + umm
     d["MELDUNGSKOSTEN"] = _money_to_str(meldungskosten)
 
@@ -755,7 +740,6 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["ZUSATZKOSTEN_BEZEICHNUNG3"] = str(extracted.get("ZUSATZKOSTEN3_NAME", "") or "")
     d["ZUSATZKOSTEN_BETRAG3"] = _money_to_str(zk3) if zk3 > 0 else ""
 
-    # Wiederbeschaffungswertaufwand = WBW - Restwert
     if wbw is not None and restwert is not None:
         d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = _money_to_str(wbw - restwert)
     elif wbw is not None:
@@ -777,7 +761,6 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     heute = datetime.now()
     frist = heute + timedelta(days=14)
 
-    # exakt passend zur Vorlage
     d["HEUTDATUM"] = heute.strftime("%d.%m.%Y")
     d["HEUTEDATUM"] = d["HEUTDATUM"]
     d["FRIST_DATUM"] = frist.strftime("%d.%m.%Y")
@@ -794,11 +777,9 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
         or ""
     )
 
-    # Vorlage nutzt {{KENNZEICHEN}} für das Mandantenfahrzeug
     d["KENNZEICHEN"] = d["KENNZEICHEN_MANDANT"]
     d["EIGENES_KENNZEICHEN"] = d["KENNZEICHEN_MANDANT"]
 
-    # Vorlage hat Tippfehler / Sonderfelder
     d["VRSICHERUNG"] = str(extracted.get("VERSICHERUNG", ""))
     d["GENDERN"] = gender.get("GENDERN1", "")
     d["GENDERN2"] = gender.get("GENDERN2", "")
@@ -817,7 +798,6 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
         d["WERTMINDERUNG_NAME"] = ""
         d["WERTMINDERUNG_BETRAG"] = ""
 
-    # Schadensnummer sauber nachbereinigen
     schadensnummer = str(extracted.get("SCHADENSNUMMER", "")).strip()
     m = re.search(r"[A-Z0-9\/\-]{6,}", schadensnummer)
     d["SCHADENSNUMMER"] = m.group(0) if m else ""
@@ -841,20 +821,7 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
         "EIGENES_KENNZEICHEN": "KENNZEICHEN_MANDANT",
         "HEUTDATUM": "HEUTEDATUM",
         "FIRST_DATUM": "FRIST_DATUM",
-
         "WIEDERBESCHAFFUNGSWERT": "WBW",
-
-        "ABMELDEKOSTEN": "ABMELDEKOSTEN",
-        "ABMELDEKOSTEN_NAME": "ABMELDEKOSTEN_NAME",
-        "ABMELDEKOSTEN_BETRAG": "ABMELDEKOSTEN_BETRAG",
-
-        "UMMELDEKOSTEN": "UMMELDEKOSTEN",
-        "UMMELDEKOSTEN_NAME": "UMMELDEKOSTEN_NAME",
-        "UMMELDEKOSTEN_BETRAG": "UMMELDEKOSTEN_BETRAG",
-
-        "SONSTIGE_SONDERKOSTEN": "SONSTIGE_SONDERKOSTEN",
-        "SONSTIGE_SONDERKOSTEN_NAME": "SONSTIGE_SONDERKOSTEN_NAME",
-        "SONSTIGE_SONDERKOSTEN_BETRAG": "SONSTIGE_SONDERKOSTEN_BETRAG",
         "WIEDERBESCHAFFUNGSWERTAUFWAND": "WIEDERBESCHAFFUNGSWERTAUFWAND",
         "MELDUNGSKOSTEN": "MELDUNGSKOSTEN",
         "ZUSATZKOSTEN_BEZEICHNUNG1": "ZUSATZKOSTEN_BEZEICHNUNG1",
