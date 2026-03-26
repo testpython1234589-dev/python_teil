@@ -883,9 +883,21 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
         "FIRST_DATUM": frist_str,
     }
 
+        is_totalschaden_template = (
+        "WIEDERBESCHAFFUNGSWERTAUFWAND" in template_keys
+        or "MELDUNGSKOSTEN" in template_keys
+        or "ZUSATZKOSTEN_BEZEICHNUNG1" in template_keys
+    )
+
     ctx: Dict[str, Any] = {}
     for key in template_keys:
         value = extracted.get(key)
+
+        if key == "KOSTENSUMME_X":
+            if is_totalschaden_template:
+                value = extracted.get("KOSTENSUMME_TOTALSCHADEN", extracted.get("KOSTENSUMME_X", ""))
+            else:
+                value = extracted.get("KOSTENSUMME_REPARATUR", extracted.get("KOSTENSUMME_X", ""))
 
         if value in (None, "") and key in aliases:
             value = extracted.get(aliases[key], "")
@@ -894,7 +906,6 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
             value = defaults[key]
 
         ctx[key] = "" if value is None else str(value)
-
     if "SCHADENSNUMMER" not in ctx and extracted.get("SCHADENSNUMMER"):
         ctx["SCHADENSNUMMER"] = str(extracted.get("SCHADENSNUMMER"))
 
