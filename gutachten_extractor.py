@@ -378,7 +378,7 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
             r"Vom Sachverständigen festgelegter Wert\s+([0-9\., ]+)",
         ],
     )
-    data["WIEDERBESCHAFFUNGSWERT"] = _extract_money(
+    data["WBW"] = _extract_money(
         p_summary + "\n" + p_wbw,
         [
             r"Wiederbeschaffungswert \(steuerneutral\)\s*([0-9\., ]+)",
