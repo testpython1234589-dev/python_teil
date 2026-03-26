@@ -883,7 +883,7 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
         "FIRST_DATUM": frist_str,
     }
 
-        is_totalschaden_template = (
+    is_totalschaden_template = (
         "WIEDERBESCHAFFUNGSWERTAUFWAND" in template_keys
         or "MELDUNGSKOSTEN" in template_keys
         or "ZUSATZKOSTEN_BEZEICHNUNG1" in template_keys
@@ -906,6 +906,7 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
             value = defaults[key]
 
         ctx[key] = "" if value is None else str(value)
+
     if "SCHADENSNUMMER" not in ctx and extracted.get("SCHADENSNUMMER"):
         ctx["SCHADENSNUMMER"] = str(extracted.get("SCHADENSNUMMER"))
 
