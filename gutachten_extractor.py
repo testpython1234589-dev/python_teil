@@ -301,8 +301,9 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
     data["KENNZEICHEN_GEGNER"] = _search_first(
         p_bet,
         [
-            r"Unfallgegner Kennzeichen\s+(.+?)\nVersicherung Name",
-            r"Unfallgegner Kennzeichen\s+(.+?)\nName",
+            r"Unfallgegner.*?\nKennzeichen\s+(.+?)\n",
+            r"Unfallgegner Kennzeichen\s+(.+?)\n",
+            r"Kennzeichen\s+([A-ZÄÖÜ]{1,4}\s?[A-Z]{1,2}\s?\d{1,4})",
         ],
     )
 
@@ -406,7 +407,41 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
     data["GUTACHTERKOSTEN_BRUTTO"] = _extract_money(
         p_invoice,
         [r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+)"],
+    
     )
+
+        data["ABMELDEKOSTEN"] = _extract_money(
+        full,
+        [
+            r"Abmeldekosten\s+([0-9\., ]+)",
+            r"Abmeldekosten[: ]+([0-9\., ]+)",
+        ],
+    )
+
+    data["UMMELDEKOSTEN"] = _extract_money(
+        full,
+        [
+            r"Ummeldekosten\s+([0-9\., ]+)",
+            r"Ummeldekosten[: ]+([0-9\., ]+)",
+        ],
+    )
+
+    data["ZUSATZKOSTEN1_NAME"] = "Sonderkosten"
+    data["ZUSATZKOSTEN1_BETRAG"] = _extract_money(
+        full,
+        [
+            r"Sonderkosten\s+([0-9\., ]+)",
+            r"Zusatzkosten\s+([0-9\., ]+)",
+            r"Sonderkosten[: ]+([0-9\., ]+)",
+            r"Zusatzkosten[: ]+([0-9\., ]+)",
+        ],
+    )
+
+    data["ZUSATZKOSTEN2_NAME"] = ""
+    data["ZUSATZKOSTEN2_BETRAG"] = ""
+
+    data["ZUSATZKOSTEN3_NAME"] = ""
+    data["ZUSATZKOSTEN3_BETRAG"] = ""
 
     return data
 
@@ -601,6 +636,40 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
         ],
     )
 
+
+        data["ABMELDEKOSTEN"] = _extract_money(
+        full,
+        [
+            r"Abmeldekosten\s+([0-9\., ]+)",
+            r"Abmeldekosten[: ]+([0-9\., ]+)",
+        ],
+    )
+
+    data["UMMELDEKOSTEN"] = _extract_money(
+        full,
+        [
+            r"Ummeldekosten\s+([0-9\., ]+)",
+            r"Ummeldekosten[: ]+([0-9\., ]+)",
+        ],
+    )
+
+    data["ZUSATZKOSTEN1_NAME"] = "Sonderkosten"
+    data["ZUSATZKOSTEN1_BETRAG"] = _extract_money(
+        full,
+        [
+            r"Sonderkosten\s+([0-9\., ]+)",
+            r"Zusatzkosten\s+([0-9\., ]+)",
+            r"Sonderkosten[: ]+([0-9\., ]+)",
+            r"Zusatzkosten[: ]+([0-9\., ]+)",
+        ],
+    )
+
+    data["ZUSATZKOSTEN2_NAME"] = ""
+    data["ZUSATZKOSTEN2_BETRAG"] = ""
+
+    data["ZUSATZKOSTEN3_NAME"] = ""
+    data["ZUSATZKOSTEN3_BETRAG"] = ""
+
     return data
 
 
@@ -649,6 +718,10 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     gut_br = _parse_money(str(extracted.get("GUTACHTERKOSTEN_BRUTTO", "")))
     wm = _parse_money(str(extracted.get("WERTMINDERUNG", ""))) or Decimal("0")
     wv = _parse_money(str(extracted.get("WERTVERBESSERUNG", ""))) or Decimal("0")
+    wbw = _parse_money(str(extracted.get("WBW", "")))
+    abm = _parse_money(str(extracted.get("ABMELDEKOSTEN", ""))) or Decimal("0")
+    umm = _parse_money(str(extracted.get("UMMELDEKOSTEN", ""))) or Decimal("0")
+    son = _parse_money(str(extracted.get("SONSTIGE_SONDERKOSTEN", ""))) or Decimal("0")
     kp = Decimal("25.00")
 
     if vorsteuer_raw == "Ja":
@@ -663,9 +736,35 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["GUTACHTERKOSTEN"] = _money_to_str(gutachter)
     d["WERTMINDERUNG"] = _money_to_str(wm)
     d["WERTVERBESSERUNG"] = _money_to_str(wv)
+    d["WBW"] = _money_to_str(wbw)
     d["KOSTENPAUSCHALE"] = _money_to_str(kp)
 
-    total = (reparatur or Decimal("0")) + wm - wv + kp + (gutachter or Decimal("0"))
+    d["ABMELDEKOSTEN"] = _money_to_str(abm)
+    d["UMMELDEKOSTEN"] = _money_to_str(umm)
+    d["SONSTIGE_SONDERKOSTEN"] = _money_to_str(son)
+
+    if abm > 0:
+        d["ABMELDEKOSTEN_NAME"] = "Abmeldekosten"
+        d["ABMELDEKOSTEN_BETRAG"] = _money_to_str(abm)
+    else:
+        d["ABMELDEKOSTEN_NAME"] = ""
+        d["ABMELDEKOSTEN_BETRAG"] = ""
+
+    if umm > 0:
+        d["UMMELDEKOSTEN_NAME"] = "Ummeldekosten"
+        d["UMMELDEKOSTEN_BETRAG"] = _money_to_str(umm)
+    else:
+        d["UMMELDEKOSTEN_NAME"] = ""
+        d["UMMELDEKOSTEN_BETRAG"] = ""
+
+    if son > 0:
+        d["SONSTIGE_SONDERKOSTEN_NAME"] = "Sonderkosten"
+        d["SONSTIGE_SONDERKOSTEN_BETRAG"] = _money_to_str(son)
+    else:
+        d["SONSTIGE_SONDERKOSTEN_NAME"] = ""
+        d["SONSTIGE_SONDERKOSTEN_BETRAG"] = ""
+
+    total = (reparatur or Decimal("0")) + wm - wv + kp + abm + umm + son + (gutachter or Decimal("0"))
     d["KOSTENSUMME_X"] = _money_to_str(total)
 
     heute = datetime.now()
@@ -735,6 +834,20 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
         "EIGENES_KENNZEICHEN": "KENNZEICHEN_MANDANT",
         "HEUTDATUM": "HEUTEDATUM",
         "FIRST_DATUM": "FRIST_DATUM",
+
+        "WIEDERBESCHAFFUNGSWERT": "WBW",
+
+        "ABMELDEKOSTEN": "ABMELDEKOSTEN",
+        "ABMELDEKOSTEN_NAME": "ABMELDEKOSTEN_NAME",
+        "ABMELDEKOSTEN_BETRAG": "ABMELDEKOSTEN_BETRAG",
+
+        "UMMELDEKOSTEN": "UMMELDEKOSTEN",
+        "UMMELDEKOSTEN_NAME": "UMMELDEKOSTEN_NAME",
+        "UMMELDEKOSTEN_BETRAG": "UMMELDEKOSTEN_BETRAG",
+
+        "SONSTIGE_SONDERKOSTEN": "SONSTIGE_SONDERKOSTEN",
+        "SONSTIGE_SONDERKOSTEN_NAME": "SONSTIGE_SONDERKOSTEN_NAME",
+        "SONSTIGE_SONDERKOSTEN_BETRAG": "SONSTIGE_SONDERKOSTEN_BETRAG",
     }
 
     now = datetime.now()
