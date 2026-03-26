@@ -5,7 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta
-from typing import Dict, Any, Iterable, List
+from typing import Dict, Any, Iterable, List, Tuple
 
 try:
     import pymupdf as fitz
@@ -129,48 +129,6 @@ def _extract_money(text: str, patterns: Iterable[str]) -> str:
     return ""
 
 
-def _extract_sonderkosten_items(text: str) -> List[Dict[str, str]]:
-    """
-    Extrahiert Unterpositionen aus dem Sonderkosten-Block, z.B.
-    Sonderkosten
-    Ab- & Anmeldegebühren 80,00 €
-    Achsvermessung 30,00 €
-    """
-    text = _clean_text(text)
-    if not text:
-        return []
-
-    block = _search_first(
-        text,
-        [
-            r"Sonderkosten\s+(.+?)(?:\nNutzungsausfall|\nFahrzeugwert|\nReparatur|\nSchadenhöhe|\Z)",
-        ],
-    )
-
-    if not block:
-        return []
-
-    items: List[Dict[str, str]] = []
-
-    for line in block.splitlines():
-        line = _clean_text(line)
-        if not line:
-            continue
-
-        m = re.match(r"(.+?)\s+([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})\s*€?$", line)
-        if not m:
-            continue
-
-        name = _clean_text(m.group(1))
-        betrag_dec = _parse_money(m.group(2))
-        betrag = _money_to_str(betrag_dec)
-
-        if name and betrag:
-            items.append({"name": name, "betrag": betrag})
-
-    return items
-
-
 def _cleanup_name(raw: str) -> tuple[str, str]:
     raw = _clean_text(raw)
     anrede = ""
@@ -260,7 +218,89 @@ def _gender_fields(anrede: str) -> Dict[str, str]:
     }
 
 
-def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
+def _extract_sonderkosten_from_pdf(pdf_source: str | Path | bytes) -> List[Dict[str, str]]:
+    """
+    Liest die Sonderkosten positionsbasiert aus der Zusammenfassungsseite.
+    Erwartet Zeilen wie:
+      Ab- & Anmeldegebühren    80,00 €
+      Achsvermessung           30,00 €
+    """
+    if fitz is None:
+        return []
+
+    if isinstance(pdf_source, (str, Path)):
+        doc = fitz.open(str(pdf_source))
+    else:
+        doc = fitz.open(stream=pdf_source, filetype="pdf")
+
+    for page in doc:
+        page_text = _clean_text(page.get_text("text", sort=True))
+        if "Sonderkosten" not in page_text or "Zusammenfassung" not in page_text:
+            continue
+
+        words = page.get_text("words")
+        if not words:
+            continue
+
+        # words: x0, y0, x1, y1, word, block_no, line_no, word_no
+        rows: Dict[float, List[Tuple[float, str]]] = {}
+        for x0, y0, x1, y1, word, *_ in words:
+            y_key = round(float(y0), 1)
+            rows.setdefault(y_key, []).append((float(x0), str(word)))
+
+        sorted_rows: List[Tuple[float, str]] = []
+        for y, items in rows.items():
+            items.sort(key=lambda t: t[0])
+            line = " ".join(w for _, w in items)
+            line = _clean_text(line)
+            sorted_rows.append((y, line))
+
+        sorted_rows.sort(key=lambda t: t[0])
+
+        # Bereich Sonderkosten bis nächste Hauptsektion
+        start_idx = None
+        end_idx = None
+        for i, (_, line) in enumerate(sorted_rows):
+            if "Sonderkosten" in line:
+                start_idx = i + 1
+                continue
+            if start_idx is not None and (
+                line.startswith("Nutzungsausfall")
+                or line.startswith("Fahrzeugwert")
+                or line.startswith("Reparatur")
+                or line.startswith("Schadenhöhe")
+            ):
+                end_idx = i
+                break
+
+        if start_idx is None:
+            return []
+
+        if end_idx is None:
+            end_idx = len(sorted_rows)
+
+        items: List[Dict[str, str]] = []
+
+        for _, line in sorted_rows[start_idx:end_idx]:
+            m = re.match(r"(.+?)\s+([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})\s*€?$", line)
+            if not m:
+                continue
+
+            name = _clean_text(m.group(1))
+            betrag = _money_to_str(_parse_money(m.group(2)))
+
+            # Hauptzeile "Sonderkosten ..." selbst nicht als Unterposition nehmen
+            if not name or name.lower() == "sonderkosten":
+                continue
+
+            items.append({"name": name, "betrag": betrag})
+
+        return items
+
+    return []
+
+
+def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | None = None) -> Dict[str, Any]:
     full = "\n".join(pages)
     data: Dict[str, Any] = {}
 
@@ -327,7 +367,7 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
         p_bet,
         [r"\nOrt\s+(.+?)\nPolizeilich erfasst"],
     )
-    unfall_strasse, unfall_ort = _split_streetPlace(unfall_ort_raw) if False else _split_street_place(unfall_ort_raw)
+    unfall_strasse, unfall_ort = _split_street_place(unfall_ort_raw)
     data["UNFALL_STRASSE"] = unfall_strasse
     data["UNFALL_ORT"] = unfall_ort or unfall_ort_raw
 
@@ -450,7 +490,7 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
         [r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+)"],
     )
 
-    sonderkosten_items = _extract_sonderkosten_items(p_summary or full)
+    sonderkosten_items = _extract_sonderkosten_from_pdf(pdf_source) if pdf_source is not None else []
 
     data["ABMELDEKOSTEN"] = ""
     data["UMMELDEKOSTEN"] = ""
@@ -488,7 +528,7 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
     return data
 
 
-def _parse_generic(pages: List[str]) -> Dict[str, Any]:
+def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = None) -> Dict[str, Any]:
     full = "\n".join(pages)
     data: Dict[str, Any] = {}
 
@@ -676,7 +716,7 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
         ],
     )
 
-    sonderkosten_items = _extract_sonderkosten_items(full)
+    sonderkosten_items = _extract_sonderkosten_from_pdf(pdf_source) if pdf_source is not None else []
 
     data["ABMELDEKOSTEN"] = ""
     data["UMMELDEKOSTEN"] = ""
@@ -714,16 +754,16 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
     return data
 
 
-def extract_all(text: str) -> Dict[str, Any]:
+def extract_all(text: str, pdf_source: str | Path | bytes | None = None) -> Dict[str, Any]:
     pages = _split_pages(text)
     full = "\n".join(pages)
 
     if "GutachterExpress" in full and "Beteiligte, Besichtigungen & Auftrag" in full:
-        data = _parse_gutachterexpress(pages)
+        data = _parse_gutachterexpress(pages, pdf_source=pdf_source)
         data["_PARSER"] = "gutachterexpress"
         return data
 
-    data = _parse_generic(pages)
+    data = _parse_generic(pages, pdf_source=pdf_source)
     data["_PARSER"] = "generic"
     return data
 
@@ -758,8 +798,6 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     wv = _parse_money(str(extracted.get("WERTVERBESSERUNG", ""))) or Decimal("0")
     wbw = _parse_money(str(extracted.get("WBW", "")))
     restwert = _parse_money(str(extracted.get("RESTWERT", "")))
-    abm = _parse_money(str(extracted.get("ABMELDEKOSTEN", "")))
-    umm = _parse_money(str(extracted.get("UMMELDEKOSTEN", "")))
     meldung_raw = _parse_money(str(extracted.get("MELDUNGSKOSTEN_RAW", "")))
     zk1 = _parse_money(str(extracted.get("ZUSATZKOSTEN1_BETRAG", ""))) or Decimal("0")
     zk2 = _parse_money(str(extracted.get("ZUSATZKOSTEN2_BETRAG", ""))) or Decimal("0")
@@ -781,11 +819,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["WBW"] = _money_to_str(wbw)
     d["KOSTENPAUSCHALE"] = _money_to_str(kp)
 
-    if meldung_raw is not None:
-        meldungskosten = meldung_raw
-    else:
-        meldungskosten = (abm or Decimal("0")) + (umm or Decimal("0"))
-
+    meldungskosten = meldung_raw or Decimal("0")
     d["MELDUNGSKOSTEN"] = _money_to_str(meldungskosten) if meldungskosten > 0 else ""
 
     d["ZUSATZKOSTEN_BEZEICHNUNG1"] = str(extracted.get("ZUSATZKOSTEN1_NAME", "") or "") if zk1 > 0 else ""
@@ -807,7 +841,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     total = (
         (gutachter or Decimal("0"))
         + kp
-        + (meldungskosten or Decimal("0"))
+        + meldungskosten
         + zk1
         + zk2
         + zk3
@@ -864,7 +898,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
 
 def extract_from_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
     text = pdf_to_text(pdf_bytes)
-    extracted = extract_all(text)
+    extracted = extract_all(text, pdf_source=pdf_bytes)
     derived = derive_fields(extracted)
     return {**extracted, **derived}
 
