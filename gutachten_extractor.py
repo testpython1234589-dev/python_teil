@@ -221,9 +221,8 @@ def _gender_fields(anrede: str) -> Dict[str, str]:
 def _extract_sonderkosten_from_pdf(pdf_source: str | Path | bytes) -> List[Dict[str, str]]:
     """
     Liest die Sonderkosten positionsbasiert aus der Zusammenfassungsseite.
-    Erwartet Zeilen wie:
-      Ab- & Anmeldegebühren    80,00 €
-      Achsvermessung           30,00 €
+    Erkennt auch den Fall, dass 'Sonderkosten' und die erste Unterposition
+    in derselben Zeile stehen.
     """
     if fitz is None:
         return []
@@ -242,7 +241,6 @@ def _extract_sonderkosten_from_pdf(pdf_source: str | Path | bytes) -> List[Dict[
         if not words:
             continue
 
-        # words: x0, y0, x1, y1, word, block_no, line_no, word_no
         rows: Dict[float, List[Tuple[float, str]]] = {}
         for x0, y0, x1, y1, word, *_ in words:
             y_key = round(float(y0), 1)
@@ -257,31 +255,40 @@ def _extract_sonderkosten_from_pdf(pdf_source: str | Path | bytes) -> List[Dict[
 
         sorted_rows.sort(key=lambda t: t[0])
 
-        # Bereich Sonderkosten bis nächste Hauptsektion
-        start_idx = None
-        end_idx = None
-        for i, (_, line) in enumerate(sorted_rows):
-            if "Sonderkosten" in line:
-                start_idx = i + 1
+        items: List[Dict[str, str]] = []
+        in_block = False
+
+        for _, line in sorted_rows:
+            if not line:
                 continue
-            if start_idx is not None and (
+
+            # Start des Blocks
+            if "Sonderkosten" in line:
+                in_block = True
+
+                # Falls die erste Position in derselben Zeile steht:
+                line_after_header = line.replace("Sonderkosten", "", 1).strip()
+                if line_after_header:
+                    m = re.match(r"(.+?)\s+([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})\s*€?$", line_after_header)
+                    if m:
+                        name = _clean_text(m.group(1))
+                        betrag = _money_to_str(_parse_money(m.group(2)))
+                        if name and betrag:
+                            items.append({"name": name, "betrag": betrag})
+                continue
+
+            # Ende des Blocks
+            if in_block and (
                 line.startswith("Nutzungsausfall")
                 or line.startswith("Fahrzeugwert")
                 or line.startswith("Reparatur")
                 or line.startswith("Schadenhöhe")
             ):
-                end_idx = i
                 break
 
-        if start_idx is None:
-            return []
+            if not in_block:
+                continue
 
-        if end_idx is None:
-            end_idx = len(sorted_rows)
-
-        items: List[Dict[str, str]] = []
-
-        for _, line in sorted_rows[start_idx:end_idx]:
             m = re.match(r"(.+?)\s+([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})\s*€?$", line)
             if not m:
                 continue
@@ -289,11 +296,8 @@ def _extract_sonderkosten_from_pdf(pdf_source: str | Path | bytes) -> List[Dict[
             name = _clean_text(m.group(1))
             betrag = _money_to_str(_parse_money(m.group(2)))
 
-            # Hauptzeile "Sonderkosten ..." selbst nicht als Unterposition nehmen
-            if not name or name.lower() == "sonderkosten":
-                continue
-
-            items.append({"name": name, "betrag": betrag})
+            if name and betrag and name.lower() != "sonderkosten":
+                items.append({"name": name, "betrag": betrag})
 
         return items
 
