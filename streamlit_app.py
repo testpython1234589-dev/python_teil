@@ -103,13 +103,23 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "SCHADENHERGANG",
     ]
 
-    # WICHTIG: Prioritätsfelder immer anzeigen, auch wenn sie nicht in template_keys sind
+    # Nur Felder anzeigen, die:
+    # - in der Vorlage vorkommen ODER
+    # - tatsächlich Werte haben ODER
+    # - explizit immer sichtbar sein sollen
+    visible_keys = set(keys) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER"}
+
     keys_sorted: List[str] = []
+
     for p in priority:
-        if p not in keys_sorted:
+        if p in visible_keys and p not in keys_sorted:
             keys_sorted.append(p)
 
     for k in keys:
+        if k in visible_keys and k not in keys_sorted:
+            keys_sorted.append(k)
+
+    for k in sorted(visible_keys):
         if k not in keys_sorted:
             keys_sorted.append(k)
 
@@ -160,7 +170,7 @@ if st.session_state["step"] == "extract":
         st.session_state["debug_extracted"] = extracted
 
         clear_review_widget_state()
-        load_review_widget_state(template_keys, ctx)
+        load_review_widget_state(list(set(template_keys) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER"}), ctx)
 
         go_review()
         st.rerun()
@@ -195,7 +205,7 @@ else:
             )
             st.session_state["ctx"] = ctx
             clear_review_widget_state()
-            load_review_widget_state(st.session_state["template_keys"], ctx)
+            load_review_widget_state(list(set(st.session_state["template_keys"]) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER"}), ctx)
             st.rerun()
 
     with c3:
