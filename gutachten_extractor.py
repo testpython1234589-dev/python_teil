@@ -780,8 +780,30 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
         wiederbeschaffungsaufwand = Decimal("0")
         d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
 
-    total = (gutachter or Decimal("0")) + kp + meldungskosten + zk1 + zk2 + zk3 + wiederbeschaffungsaufwand
-    d["KOSTENSUMME_X"] = _money_to_str(total)
+    # 1) Summe für Reparaturschaden
+    kostensumme_reparatur = (
+        (reparatur or Decimal("0"))
+        + wm
+        - wv
+        + kp
+        + (gutachter or Decimal("0"))
+    )
+    d["KOSTENSUMME_REPARATUR"] = _money_to_str(kostensumme_reparatur)
+
+    # 2) Summe für Totalschaden
+    kostensumme_totalschaden = (
+        wiederbeschaffungsaufwand
+        + kp
+        + (gutachter or Decimal("0"))
+        + meldungskosten
+        + zk1
+        + zk2
+        + zk3
+    )
+    d["KOSTENSUMME_TOTALSCHADEN"] = _money_to_str(kostensumme_totalschaden)
+
+    # Standard-Fallback
+    d["KOSTENSUMME_X"] = d["KOSTENSUMME_REPARATUR"]
 
     heute = datetime.now()
     frist = heute + timedelta(days=14)
