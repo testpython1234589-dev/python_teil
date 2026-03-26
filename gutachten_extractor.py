@@ -850,6 +850,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
         + zk2
         + zk3
         + (wbw - restwert if wbw is not None and restwert is not None else Decimal("0"))
+        + rep_net
     )
     d["KOSTENSUMME_X"] = _money_to_str(total)
 
