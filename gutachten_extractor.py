@@ -116,7 +116,8 @@ def _money_to_str(value: Decimal | None) -> str:
     if value is None:
         return ""
     s = f"{value:,.2f}"
-    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{s} €"
 
 
 def _extract_money(text: str, patterns: Iterable[str]) -> str:
@@ -219,11 +220,6 @@ def _gender_fields(anrede: str) -> Dict[str, str]:
 
 
 def _extract_sonderkosten_from_pdf(pdf_source: str | Path | bytes) -> List[Dict[str, str]]:
-    """
-    Liest die Sonderkosten positionsbasiert aus der Zusammenfassungsseite.
-    Erkennt auch den Fall, dass 'Sonderkosten' und die erste Unterposition
-    in derselben Zeile stehen.
-    """
     if fitz is None:
         return []
 
@@ -262,11 +258,8 @@ def _extract_sonderkosten_from_pdf(pdf_source: str | Path | bytes) -> List[Dict[
             if not line:
                 continue
 
-            # Start des Blocks
             if "Sonderkosten" in line:
                 in_block = True
-
-                # Falls die erste Position in derselben Zeile steht:
                 line_after_header = line.replace("Sonderkosten", "", 1).strip()
                 if line_after_header:
                     m = re.match(r"(.+?)\s+([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})\s*€?$", line_after_header)
@@ -277,7 +270,6 @@ def _extract_sonderkosten_from_pdf(pdf_source: str | Path | bytes) -> List[Dict[
                             items.append({"name": name, "betrag": betrag})
                 continue
 
-            # Ende des Blocks
             if in_block and (
                 line.startswith("Nutzungsausfall")
                 or line.startswith("Fahrzeugwert")
@@ -352,37 +344,19 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         [r"\nPLZ Ort\s+(.+?)\nVorsteuerabzug"],
     )
     data["VORSTEUERABZUG_RAW"] = _normalize_yes_no(
-        _search_first(
-            p_bet,
-            [r"Vorsteuerabzug\s+(.+?)\nAnwalt"],
-        )
+        _search_first(p_bet, [r"Vorsteuerabzug\s+(.+?)\nAnwalt"])
     )
 
-    data["UNFALL_DATUM"] = _search_first(
-        p_bet,
-        [r"Unfall Datum\s+(\d{2}\.\d{2}\.\d{4})"],
-    )
-    data["UNFALL_UHRZEIT"] = _search_first(
-        p_bet,
-        [r"Uhrzeit\s+(.+?)\nOrt"],
-    )
+    data["UNFALL_DATUM"] = _search_first(p_bet, [r"Unfall Datum\s+(\d{2}\.\d{2}\.\d{4})"])
+    data["UNFALL_UHRZEIT"] = _search_first(p_bet, [r"Uhrzeit\s+(.+?)\nOrt"])
 
-    unfall_ort_raw = _search_first(
-        p_bet,
-        [r"\nOrt\s+(.+?)\nPolizeilich erfasst"],
-    )
+    unfall_ort_raw = _search_first(p_bet, [r"\nOrt\s+(.+?)\nPolizeilich erfasst"])
     unfall_strasse, unfall_ort = _split_street_place(unfall_ort_raw)
     data["UNFALL_STRASSE"] = unfall_strasse
     data["UNFALL_ORT"] = unfall_ort or unfall_ort_raw
 
-    data["AKTENZEICHEN_POLIZEI"] = _search_first(
-        p_bet,
-        [r"Aktenzeichen Polizei\s+(.+?)\nPolizeibehörde"],
-    )
-    data["POLIZEIBEHOERDE"] = _search_first(
-        p_bet,
-        [r"Polizeibehörde\s+(.+?)\nBesichtigung Datum"],
-    )
+    data["AKTENZEICHEN_POLIZEI"] = _search_first(p_bet, [r"Aktenzeichen Polizei\s+(.+?)\nPolizeibehörde"])
+    data["POLIZEIBEHOERDE"] = _search_first(p_bet, [r"Polizeibehörde\s+(.+?)\nBesichtigung Datum"])
 
     data["KENNZEICHEN_GEGNER"] = _search_first(
         p_bet,
@@ -393,13 +367,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         ],
     )
 
-    data["KENNZEICHEN_MANDANT"] = _search_first(
-        p_vehicle,
-        [
-            r"Amtliches Kennzeichen\s+(.+?)\n",
-        ],
-    )
-
+    data["KENNZEICHEN_MANDANT"] = _search_first(p_vehicle, [r"Amtliches Kennzeichen\s+(.+?)\n"])
     data["KENNZEICHEN"] = data["KENNZEICHEN_GEGNER"]
     data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
 
@@ -437,10 +405,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
     modell = _search_first(p_vehicle, [r"Modell(?:/Haupttyp)?\s+(.+?)\n"])
     data["FAHRZEUGTYP"] = _clean_text(" ".join(x for x in [hersteller, modell] if x))
 
-    data["SCHADENHERGANG"] = _search_first(
-        p_sh,
-        [r"Schadenhergang\s+(.+?)\nAnstoß-/Schadenbereich"],
-    )
+    data["SCHADENHERGANG"] = _search_first(p_sh, [r"Schadenhergang\s+(.+?)\nAnstoß-/Schadenbereich"])
 
     data["REPARATURKOSTEN_NETTO"] = _extract_money(
         p_summary + "\n" + p_calc,
@@ -475,31 +440,17 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
     if re.search(r"Restwertermittlung\s*\(keine\)", p_rest, re.IGNORECASE):
         data["RESTWERT"] = ""
     else:
-        data["RESTWERT"] = _extract_money(
-            full,
-            [r"Restwert(?:ermittlung)?[: ]+([0-9\., ]+)"],
-        )
+        data["RESTWERT"] = _extract_money(full, [r"Restwert(?:ermittlung)?[: ]+([0-9\., ]+)"])
 
-    data["WERTVERBESSERUNG"] = _extract_money(
-        full,
-        [r"Wertverbesserung[: ]+([0-9\., ]+)"],
-    )
-
-    data["GUTACHTERKOSTEN_NETTO"] = _extract_money(
-        p_invoice,
-        [r"Gesamtbetrag ohne MwSt\.\s*([0-9\., ]+)"],
-    )
-    data["GUTACHTERKOSTEN_BRUTTO"] = _extract_money(
-        p_invoice,
-        [r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+)"],
-    )
+    data["WERTVERBESSERUNG"] = _extract_money(full, [r"Wertverbesserung[: ]+([0-9\., ]+)"])
+    data["GUTACHTERKOSTEN_NETTO"] = _extract_money(p_invoice, [r"Gesamtbetrag ohne MwSt\.\s*([0-9\., ]+)"])
+    data["GUTACHTERKOSTEN_BRUTTO"] = _extract_money(p_invoice, [r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+)"])
 
     sonderkosten_items = _extract_sonderkosten_from_pdf(pdf_source) if pdf_source is not None else []
 
     data["ABMELDEKOSTEN"] = ""
     data["UMMELDEKOSTEN"] = ""
     data["MELDUNGSKOSTEN_RAW"] = ""
-
     data["ZUSATZKOSTEN1_NAME"] = ""
     data["ZUSATZKOSTEN1_BETRAG"] = ""
     data["ZUSATZKOSTEN2_NAME"] = ""
@@ -508,7 +459,6 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
     data["ZUSATZKOSTEN3_BETRAG"] = ""
 
     zusatz_index = 1
-
     for item in sonderkosten_items:
         name = item["name"]
         betrag = item["betrag"]
@@ -592,10 +542,7 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
     data["UNFALL_STRASSE"] = unfall_strasse
     data["UNFALL_ORT"] = unfall_ort or unfall_ort_raw
 
-    data["AKTENZEICHEN_POLIZEI"] = _search_first(
-        full,
-        [r"Aktenzeichen Polizei\s+(.+?)\n"],
-    )
+    data["AKTENZEICHEN_POLIZEI"] = _search_first(full, [r"Aktenzeichen Polizei\s+(.+?)\n"])
     data["AKTENZEICHEN"] = _search_first(
         full,
         [
@@ -631,10 +578,7 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
             r"Versicherung\s*[:\-]?\s*(.+?)\n",
         ],
     )
-    data["VER_STRASSE"] = _search_first(
-        full,
-        [r"Versicherung Name\s+.+?\nStraße\s+(.+?)\nPLZ Ort"],
-    )
+    data["VER_STRASSE"] = _search_first(full, [r"Versicherung Name\s+.+?\nStraße\s+(.+?)\nPLZ Ort"])
     data["VER_ORT"] = _search_first(
         full,
         [
@@ -695,16 +639,9 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
     if re.search(r"Restwertermittlung\s*\(keine\)", full, re.IGNORECASE):
         data["RESTWERT"] = ""
     else:
-        data["RESTWERT"] = _extract_money(
-            full,
-            [r"Restwert(?:ermittlung)?[: ]+([0-9\., ]+)"],
-        )
+        data["RESTWERT"] = _extract_money(full, [r"Restwert(?:ermittlung)?[: ]+([0-9\., ]+)"])
 
-    data["WERTVERBESSERUNG"] = _extract_money(
-        full,
-        [r"Wertverbesserung[: ]+([0-9\., ]+)"],
-    )
-
+    data["WERTVERBESSERUNG"] = _extract_money(full, [r"Wertverbesserung[: ]+([0-9\., ]+)"])
     data["GUTACHTERKOSTEN_NETTO"] = _extract_money(
         full,
         [
@@ -725,7 +662,6 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
     data["ABMELDEKOSTEN"] = ""
     data["UMMELDEKOSTEN"] = ""
     data["MELDUNGSKOSTEN_RAW"] = ""
-
     data["ZUSATZKOSTEN1_NAME"] = ""
     data["ZUSATZKOSTEN1_BETRAG"] = ""
     data["ZUSATZKOSTEN2_NAME"] = ""
@@ -734,7 +670,6 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
     data["ZUSATZKOSTEN3_BETRAG"] = ""
 
     zusatz_index = 1
-
     for item in sonderkosten_items:
         name = item["name"]
         betrag = item["betrag"]
@@ -836,26 +771,16 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["ZUSATZKOSTEN_BETRAG3"] = _money_to_str(zk3) if zk3 > 0 else ""
 
     if wbw is not None and restwert is not None:
-        d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = _money_to_str(wbw - restwert)
+        wiederbeschaffungsaufwand = wbw - restwert
+        d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = _money_to_str(wiederbeschaffungsaufwand)
     elif wbw is not None:
-        d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = _money_to_str(wbw)
+        wiederbeschaffungsaufwand = wbw
+        d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = _money_to_str(wiederbeschaffungsaufwand)
     else:
+        wiederbeschaffungsaufwand = Decimal("0")
         d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
 
-    total = (
-        (gutachter or Decimal("0"))
-        + kp
-        + meldungskosten
-        + zk1
-        + zk2
-        + zk3
-        + (wbw - restwert if wbw is not None and restwert is not None else Decimal("0"))
-        + rep_net
-        if VORSTEUERABZUG_RAW=="ja":
-            +gut_net
-        else:
-        +gut_br
-    )
+    total = (gutachter or Decimal("0")) + kp + meldungskosten + zk1 + zk2 + zk3 + wiederbeschaffungsaufwand
     d["KOSTENSUMME_X"] = _money_to_str(total)
 
     heute = datetime.now()
@@ -866,16 +791,8 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["FRIST_DATUM"] = frist.strftime("%d.%m.%Y")
     d["FIRST_DATUM"] = d["FRIST_DATUM"]
 
-    d["KENNZEICHEN_GEGNER"] = str(
-        extracted.get("KENNZEICHEN_GEGNER")
-        or extracted.get("KENNZEICHEN")
-        or ""
-    )
-    d["KENNZEICHEN_MANDANT"] = str(
-        extracted.get("KENNZEICHEN_MANDANT")
-        or extracted.get("EIGENES_KENNZEICHEN")
-        or ""
-    )
+    d["KENNZEICHEN_GEGNER"] = str(extracted.get("KENNZEICHEN_GEGNER") or extracted.get("KENNZEICHEN") or "")
+    d["KENNZEICHEN_MANDANT"] = str(extracted.get("KENNZEICHEN_MANDANT") or extracted.get("EIGENES_KENNZEICHEN") or "")
 
     d["KENNZEICHEN"] = d["KENNZEICHEN_MANDANT"]
     d["EIGENES_KENNZEICHEN"] = d["KENNZEICHEN_MANDANT"]
@@ -930,6 +847,7 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
         "ZUSATZKOSTEN_BETRAG2": "ZUSATZKOSTEN_BETRAG2",
         "ZUSATZKOSTEN_BEZEICHNUNG3": "ZUSATZKOSTEN_BEZEICHNUNG3",
         "ZUSATZKOSTEN_BETRAG3": "ZUSATZKOSTEN_BETRAG3",
+        "SCHADENNUMMER": "SCHADENSNUMMER",
     }
 
     now = datetime.now()
@@ -954,5 +872,8 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
             value = defaults[key]
 
         ctx[key] = "" if value is None else str(value)
+
+    if "SCHADENSNUMMER" not in ctx and extracted.get("SCHADENSNUMMER"):
+        ctx["SCHADENSNUMMER"] = str(extracted.get("SCHADENSNUMMER"))
 
     return ctx
