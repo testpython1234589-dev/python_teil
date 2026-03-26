@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, Any, List
 
-from extractors.common import (
+from common import (
     search_first,
     find_page,
     extract_money,
