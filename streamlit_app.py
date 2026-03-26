@@ -72,6 +72,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "UNFALL_ORT",
         "UNFALL_STRASSE",
         "AKTENZEICHEN",
+        "SCHADENSNUMMER",
         "KENNZEICHEN_MANDANT",
         "KENNZEICHEN_GEGNER",
         "KENNZEICHEN",
@@ -79,7 +80,6 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "VERSICHERUNG",
         "VER_STRASSE",
         "VER_ORT",
-        "SCHADENSNUMMER",
         "VORSTEUERBERECHTIGUNG",
         "REPARATURKOSTEN",
         "WERTMINDERUNG",
@@ -103,14 +103,12 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "SCHADENHERGANG",
     ]
 
+    # WICHTIG: Prioritätsfelder immer anzeigen, auch wenn sie nicht in template_keys sind
     keys_sorted: List[str] = []
-    
-    # Prioritätsfelder IMMER anzeigen, auch wenn sie in der Vorlage evtl. fehlen
     for p in priority:
         if p not in keys_sorted:
             keys_sorted.append(p)
-    
-    # Danach alle echten Template-Felder ergänzen
+
     for k in keys:
         if k not in keys_sorted:
             keys_sorted.append(k)
