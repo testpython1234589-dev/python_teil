@@ -32,9 +32,9 @@ def main():
 
     # 2) PDF -> Text
     text = gx.pdf_to_text(args.pdf)
-
+    
     # 3) Extract
-    extracted = gx.extract_all(text)
+    extracted = gx.extract_all(text, pdf_source=args.pdf)
     derived = gx.derive_fields(extracted)
 
     # Merge extracted + derived (derived gewinnt)
