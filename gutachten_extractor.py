@@ -129,6 +129,48 @@ def _extract_money(text: str, patterns: Iterable[str]) -> str:
     return ""
 
 
+def _extract_sonderkosten_items(text: str) -> List[Dict[str, str]]:
+    """
+    Extrahiert Unterpositionen aus dem Sonderkosten-Block, z.B.
+    Sonderkosten
+    Ab- & Anmeldegebühren 80,00 €
+    Achsvermessung 30,00 €
+    """
+    text = _clean_text(text)
+    if not text:
+        return []
+
+    block = _search_first(
+        text,
+        [
+            r"Sonderkosten\s+(.+?)(?:\nNutzungsausfall|\nFahrzeugwert|\nReparatur|\nSchadenhöhe|\Z)",
+        ],
+    )
+
+    if not block:
+        return []
+
+    items: List[Dict[str, str]] = []
+
+    for line in block.splitlines():
+        line = _clean_text(line)
+        if not line:
+            continue
+
+        m = re.match(r"(.+?)\s+([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})\s*€?$", line)
+        if not m:
+            continue
+
+        name = _clean_text(m.group(1))
+        betrag_dec = _parse_money(m.group(2))
+        betrag = _money_to_str(betrag_dec)
+
+        if name and betrag:
+            items.append({"name": name, "betrag": betrag})
+
+    return items
+
+
 def _cleanup_name(raw: str) -> tuple[str, str]:
     raw = _clean_text(raw)
     anrede = ""
@@ -285,7 +327,7 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
         p_bet,
         [r"\nOrt\s+(.+?)\nPolizeilich erfasst"],
     )
-    unfall_strasse, unfall_ort = _split_street_place(unfall_ort_raw)
+    unfall_strasse, unfall_ort = _split_streetPlace(unfall_ort_raw) if False else _split_street_place(unfall_ort_raw)
     data["UNFALL_STRASSE"] = unfall_strasse
     data["UNFALL_ORT"] = unfall_ort or unfall_ort_raw
 
@@ -408,41 +450,40 @@ def _parse_gutachterexpress(pages: List[str]) -> Dict[str, Any]:
         [r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+)"],
     )
 
-    data["ABMELDEKOSTEN"] = _extract_money(
-        full,
-        [
-            r"\bAbmeldekosten\b[: ]+([0-9\., ]+)",
-        ],
-    )
-    data["UMMELDEKOSTEN"] = _extract_money(
-        full,
-        [
-            r"\bUmmeldekosten\b[: ]+([0-9\., ]+)",
-        ],
-    )
-    data["MELDUNGSKOSTEN_RAW"] = _extract_money(
-        full,
-        [
-            r"Abmelde\s*[-/]\s*Ummeldekosten[: ]+([0-9\., ]+)",
-            r"An\s*[-/]\s*Abmeldekosten[: ]+([0-9\., ]+)",
-            r"Meldekosten[: ]+([0-9\., ]+)",
-            r"Ab- und Ummeldekosten[: ]+([0-9\., ]+)",
-        ],
-    )
+    sonderkosten_items = _extract_sonderkosten_items(p_summary or full)
 
-    zk1_betrag = _extract_money(
-        full,
-        [
-            r"\bSonderkosten\b[: ]+([0-9\., ]+)",
-            r"\bZusatzkosten\b[: ]+([0-9\., ]+)",
-        ],
-    )
-    data["ZUSATZKOSTEN1_NAME"] = "Sonderkosten" if zk1_betrag else ""
-    data["ZUSATZKOSTEN1_BETRAG"] = zk1_betrag
+    data["ABMELDEKOSTEN"] = ""
+    data["UMMELDEKOSTEN"] = ""
+    data["MELDUNGSKOSTEN_RAW"] = ""
+
+    data["ZUSATZKOSTEN1_NAME"] = ""
+    data["ZUSATZKOSTEN1_BETRAG"] = ""
     data["ZUSATZKOSTEN2_NAME"] = ""
     data["ZUSATZKOSTEN2_BETRAG"] = ""
     data["ZUSATZKOSTEN3_NAME"] = ""
     data["ZUSATZKOSTEN3_BETRAG"] = ""
+
+    zusatz_index = 1
+
+    for item in sonderkosten_items:
+        name = item["name"]
+        betrag = item["betrag"]
+        name_lower = name.lower()
+
+        if (
+            "anmelde" in name_lower
+            or "abmelde" in name_lower
+            or "meldegebühr" in name_lower
+            or "an- & abmelde" in name_lower
+            or "ab- & anmelde" in name_lower
+        ):
+            data["MELDUNGSKOSTEN_RAW"] = betrag
+            continue
+
+        if zusatz_index <= 3:
+            data[f"ZUSATZKOSTEN{zusatz_index}_NAME"] = name
+            data[f"ZUSATZKOSTEN{zusatz_index}_BETRAG"] = betrag
+            zusatz_index += 1
 
     return data
 
@@ -635,41 +676,40 @@ def _parse_generic(pages: List[str]) -> Dict[str, Any]:
         ],
     )
 
-    data["ABMELDEKOSTEN"] = _extract_money(
-        full,
-        [
-            r"\bAbmeldekosten\b[: ]+([0-9\., ]+)",
-        ],
-    )
-    data["UMMELDEKOSTEN"] = _extract_money(
-        full,
-        [
-            r"\bUmmeldekosten\b[: ]+([0-9\., ]+)",
-        ],
-    )
-    data["MELDUNGSKOSTEN_RAW"] = _extract_money(
-        full,
-        [
-            r"Abmelde\s*[-/]\s*Ummeldekosten[: ]+([0-9\., ]+)",
-            r"An\s*[-/]\s*Abmeldekosten[: ]+([0-9\., ]+)",
-            r"Meldekosten[: ]+([0-9\., ]+)",
-            r"Ab- und Ummeldekosten[: ]+([0-9\., ]+)",
-        ],
-    )
+    sonderkosten_items = _extract_sonderkosten_items(full)
 
-    zk1_betrag = _extract_money(
-        full,
-        [
-            r"\bSonderkosten\b[: ]+([0-9\., ]+)",
-            r"\bZusatzkosten\b[: ]+([0-9\., ]+)",
-        ],
-    )
-    data["ZUSATZKOSTEN1_NAME"] = "Sonderkosten" if zk1_betrag else ""
-    data["ZUSATZKOSTEN1_BETRAG"] = zk1_betrag
+    data["ABMELDEKOSTEN"] = ""
+    data["UMMELDEKOSTEN"] = ""
+    data["MELDUNGSKOSTEN_RAW"] = ""
+
+    data["ZUSATZKOSTEN1_NAME"] = ""
+    data["ZUSATZKOSTEN1_BETRAG"] = ""
     data["ZUSATZKOSTEN2_NAME"] = ""
     data["ZUSATZKOSTEN2_BETRAG"] = ""
     data["ZUSATZKOSTEN3_NAME"] = ""
     data["ZUSATZKOSTEN3_BETRAG"] = ""
+
+    zusatz_index = 1
+
+    for item in sonderkosten_items:
+        name = item["name"]
+        betrag = item["betrag"]
+        name_lower = name.lower()
+
+        if (
+            "anmelde" in name_lower
+            or "abmelde" in name_lower
+            or "meldegebühr" in name_lower
+            or "an- & abmelde" in name_lower
+            or "ab- & anmelde" in name_lower
+        ):
+            data["MELDUNGSKOSTEN_RAW"] = betrag
+            continue
+
+        if zusatz_index <= 3:
+            data[f"ZUSATZKOSTEN{zusatz_index}_NAME"] = name
+            data[f"ZUSATZKOSTEN{zusatz_index}_BETRAG"] = betrag
+            zusatz_index += 1
 
     return data
 
