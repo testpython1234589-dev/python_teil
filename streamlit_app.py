@@ -7,8 +7,6 @@ import word_backend as wb
 import gutachten_extractor as gx
 
 
-
-
 TEMPLATES = {
     "Standard Schreiben": ("vorlage_schreiben-1.docx", "Standard_schreiben"),
     "130 Prozent": ("vorlage_130_prozent-1.docx", "130_prozent"),
@@ -66,7 +64,6 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     updated = dict(ctx)
 
     priority = [
-    priority = [
         "MANDANT_VORNAME",
         "MANDANT_NACHNAME",
         "MANDANT_STRASSE",
@@ -103,8 +100,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "GENDERN2",
         "HEUTEDATUM",
         "FRIST_DATUM",
-        "SCHADENHERGANG"
-    ]
+        "SCHADENHERGANG",
     ]
 
     keys_sorted: List[str] = []
