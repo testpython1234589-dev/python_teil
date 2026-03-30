@@ -9,12 +9,12 @@ import gutachten_service as gs
 
 TEMPLATES = {
     "gutachterexpress": {
-        "Standard Schreiben": ("vorlage_schreiben_gutachterexpress.docx", "Standard_schreiben_gutachterexpress"),
-        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden_gutachterexpress.docx", "schreibentotalschaden_gutachterexpress"),
+        "Standard Schreiben": ("vorlage_schreiben-1-express.docx", "Standard_schreiben_gutachterexpress"),
+        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1-express.docx", "schreibentotalschaden_gutachterexpress"),
     },
     "schnur": {
-        "Standard Schreiben": ("vorlage_schreiben_schnur.docx", "Standard_schreiben_schnur"),
-        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden_schnur.docx", "schreibentotalschaden_schnur"),
+        "Standard Schreiben": ("vorlage_schreiben-1-schnur.docx", "Standard_schreiben_schnur"),
+        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1-schnur.docx", "schreibentotalschaden_schnur"),
     },
 }
 
