@@ -9,8 +9,8 @@ import gutachten_service as gs
 
 TEMPLATES = {
     "gutachterexpress": {
-        "Standard Schreiben": ("vorlage_schreiben-1-express.docx", "Standard_schreiben_gutachterexpress"),
-        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1-express.docx", "schreibentotalschaden_gutachterexpress"),
+        "Standard Schreiben": ("vorlage_schreiben-1.docx", "Standard_schreiben"),
+        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1.docx", "schreibentotalschaden"),
     },
     "schnur": {
         "Standard Schreiben": ("vorlage_schreiben-1-schnur.docx", "Standard_schreiben_schnur"),
@@ -33,12 +33,14 @@ def ensure_state() -> None:
     st.session_state.setdefault("template_keys", [])
     st.session_state.setdefault("extracted", {})
     st.session_state.setdefault("debug_extracted", {})
+    st.session_state.setdefault("hinweis_button_clicked", False)
 
 
 def clear_review_widget_state() -> None:
     for key in list(st.session_state.keys()):
         if key.startswith("rev_"):
             del st.session_state[key]
+    st.session_state["hinweis_button_clicked"] = False
 
 
 def load_review_widget_state(keys: List[str], ctx: Dict[str, Any]) -> None:
@@ -71,6 +73,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     updated = dict(ctx)
 
     priority = [
+        "MANDANT_ANREDE",
         "MANDANT_VORNAME",
         "MANDANT_NACHNAME",
         "MANDANT_STRASSE",
@@ -111,7 +114,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "HINWEIS",
     ]
 
-    visible_keys = set(keys) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER"}
+    visible_keys = set(keys) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER", "HINWEIS"}
 
     keys_sorted: List[str] = []
 
@@ -137,11 +140,8 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
             st.session_state[widget_key] = "" if ctx.get(k) is None else str(ctx.get(k, ""))
 
         if k == "HINWEIS":
-            flag_key = "hinweis_button_clicked"
-            st.session_state.setdefault(flag_key, False)
-
             with col:
-                if st.session_state[flag_key]:
+                if st.session_state["hinweis_button_clicked"]:
                     st.markdown(
                         "<div style='padding:6px;border-radius:6px;background:#d4edda;color:#155724;font-weight:bold;'>Hinweis eingefügt</div>",
                         unsafe_allow_html=True,
@@ -154,7 +154,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
 
                 if st.button("Hinweis einfügen", key="btn_hinweis"):
                     st.session_state[widget_key] = "Hinweis: xyz"
-                    st.session_state[flag_key] = True
+                    st.session_state["hinweis_button_clicked"] = True
                     st.rerun()
 
                 st.text_area(k, height=120, key=widget_key)
@@ -167,7 +167,8 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         updated[k] = st.session_state[widget_key]
 
     return updated
-    
+
+
 st.set_page_config(page_title="Gutachten → Schreiben", layout="wide")
 ensure_state()
 
@@ -200,7 +201,10 @@ if st.session_state["step"] == "extract":
         st.session_state["debug_extracted"] = extracted
 
         clear_review_widget_state()
-        load_review_widget_state(list(set(template_keys) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER"}), ctx)
+        load_review_widget_state(
+            list(set(template_keys) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER", "HINWEIS"}),
+            ctx,
+        )
 
         go_review()
         st.rerun()
@@ -236,7 +240,7 @@ else:
             st.session_state["ctx"] = ctx
             clear_review_widget_state()
             load_review_widget_state(
-                list(set(st.session_state["template_keys"]) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER"}),
+                list(set(st.session_state["template_keys"]) | {k for k, v in ctx.items() if str(v).strip()} | {"SCHADENSNUMMER", "HINWEIS"}),
                 ctx,
             )
             st.rerun()
