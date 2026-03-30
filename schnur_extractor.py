@@ -24,11 +24,50 @@ def _extract_block_between(text: str, start_label: str, next_label: str) -> str:
     return ""
 
 
+def _split_street_plz_ort(value: str) -> tuple[str, str]:
+    value = clean_text(value)
+    if not value:
+        return "", ""
+
+    # Wichtig: bei Schnur kommt oft "Straße 12, 12345 Ort"
+    if "," in value:
+        left, right = value.split(",", 1)
+        return clean_text(left), clean_text(right)
+
+    # Fallback: falls nur PLZ/Ort da ist
+    if re.search(r"\b\d{5}\b", value):
+        return "", value
+
+    return value, ""
+
+
+def _extract_first_money_after_label(text: str, label: str) -> str:
+    if not text:
+        return ""
+
+    m = re.search(
+        rf"{re.escape(label)}\s+EUR\s+([0-9\.\,]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if m:
+        return extract_money(m.group(1), [r"([0-9\.\,]+)"])
+
+    m = re.search(
+        rf"{re.escape(label)}\s+([0-9\.\,]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if m:
+        return extract_money(m.group(1), [r"([0-9\.\,]+)"])
+
+    return ""
+
+
 def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     full = "\n".join(pages)
     data: Dict[str, Any] = {}
 
-    # Relevante Seiten finden
     p1 = ""
     p_summary = ""
     p_vehicle = ""
@@ -55,7 +94,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     base_page = p1 or full
 
-    # Aktenzeichen / Schaden-Nr.
+    # ----------------------------
+    # Aktenzeichen
+    # ----------------------------
     data["AKTENZEICHEN"] = search_first(
         base_page,
         [
@@ -66,7 +107,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # Mandant / Anspruchsteller
+    # ----------------------------
+    # Anspruchsteller
+    # ----------------------------
     anspruchsteller_block = _extract_block_between(
         base_page,
         "Anspruchsteller",
@@ -77,73 +120,47 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         anspruchsteller_block = _extract_block_between(
             base_page,
             "Anspruchsteller",
-            "Amtliches Kennzeichen",
+            "Besichtigungsdatum",
         )
 
     if not anspruchsteller_block:
         anspruchsteller_block = _extract_block_between(
             base_page,
             "Anspruchsteller",
-            "Kennzeichen Unfallgegner",
+            "Amtliches Kennzeichen",
         )
 
-    block_lines = [clean_text(x) for x in anspruchsteller_block.split("\n") if clean_text(x)]
+    lines = [clean_text(x) for x in anspruchsteller_block.split("\n") if clean_text(x)]
 
     raw_name = ""
-    street = ""
-    plz_ort = ""
+    address_line = ""
 
-    if len(block_lines) >= 4 and block_lines[0].lower() in {"frau", "herr"}:
-        raw_name = f"{block_lines[0]} {block_lines[1]}"
-        street = block_lines[2]
-        plz_ort = block_lines[3]
-    elif len(block_lines) >= 3:
-        raw_name = block_lines[0]
-        street = block_lines[1]
-        plz_ort = block_lines[2]
-    elif len(block_lines) >= 2:
-        raw_name = block_lines[0]
-        if re.search(r"\d{5}\s+", block_lines[1]):
-            plz_ort = block_lines[1]
-        else:
-            street = block_lines[1]
+    if len(lines) >= 3 and lines[0].lower() in {"frau", "herr"}:
+        raw_name = f"{lines[0]} {lines[1]}"
+        address_line = lines[2]
+    elif len(lines) >= 2:
+        raw_name = lines[0]
+        address_line = lines[1]
+    elif len(lines) >= 1:
+        raw_name = lines[0]
 
     anrede, clean_name = cleanup_name(raw_name)
+    mandant_strasse, mandant_plz_ort = _split_street_plz_ort(address_line)
 
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
-    data["MANDANT_STRASSE"] = street
-    data["MANDANT_PLZ_ORT"] = plz_ort
+    data["MANDANT_STRASSE"] = mandant_strasse
+    data["MANDANT_PLZ_ORT"] = mandant_plz_ort
 
-    # Fallbacks
     if not data["MANDANT_NAME"]:
-        raw_name = search_first(
-            base_page,
-            [
-                r"Anspruchsteller\s+(.+?)\n",
-            ],
-        )
+        raw_name = search_first(base_page, [r"Anspruchsteller\s+(.+?)\n"])
         anrede, clean_name = cleanup_name(raw_name)
         data["MANDANT_ANREDE"] = anrede
         data["MANDANT_NAME"] = clean_name
 
-    if not data["MANDANT_STRASSE"]:
-        data["MANDANT_STRASSE"] = search_first(
-            base_page,
-            [
-                r"Anspruchsteller\s+.+?\n(.+?)\n\d{5}\s+.+",
-            ],
-        )
-
-    if not data["MANDANT_PLZ_ORT"]:
-        data["MANDANT_PLZ_ORT"] = search_first(
-            base_page,
-            [
-                r"Anspruchsteller\s+.+?\n.+?\n(\d{5}\s+.+?)\n",
-            ],
-        )
-
+    # ----------------------------
     # Kennzeichen
+    # ----------------------------
     data["KENNZEICHEN_MANDANT"] = search_first(
         base_page,
         [
@@ -160,7 +177,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
+    # ----------------------------
     # Versicherung
+    # ----------------------------
     vers_block = _extract_block_between(
         base_page,
         "Versicherung",
@@ -168,15 +187,15 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     )
 
     vers_lines = [clean_text(x) for x in vers_block.split("\n") if clean_text(x)]
-    data["VERSICHERUNG"] = vers_lines[0] if len(vers_lines) >= 1 else ""
-    data["VER_STRASSE"] = vers_lines[1] if len(vers_lines) >= 2 else ""
-    data["VER_ORT"] = vers_lines[2] if len(vers_lines) >= 3 else ""
 
-    if data["VER_STRASSE"] and not data["VER_ORT"]:
-        m = re.match(r"(.+?),\s*(\d{5}\s+.+)", data["VER_STRASSE"])
-        if m:
-            data["VER_STRASSE"] = clean_text(m.group(1))
-            data["VER_ORT"] = clean_text(m.group(2))
+    vers_name = vers_lines[0] if len(vers_lines) >= 1 else ""
+    vers_addr = vers_lines[1] if len(vers_lines) >= 2 else ""
+
+    ver_strasse, ver_ort = _split_street_plz_ort(vers_addr)
+
+    data["VERSICHERUNG"] = vers_name
+    data["VER_STRASSE"] = ver_strasse
+    data["VER_ORT"] = ver_ort
 
     if not data["VERSICHERUNG"]:
         data["VERSICHERUNG"] = search_first(
@@ -186,7 +205,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
             ],
         )
 
+    # ----------------------------
     # Schadensnummer
+    # ----------------------------
     schaden_combo = search_first(
         base_page,
         [
@@ -203,16 +224,14 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         data["SCHADENSNUMMER"] = clean_text(schaden_combo)
         data["VERSICHERUNGSSCHEINNUMMER"] = ""
 
-    if data["SCHADENSNUMMER"]:
-        m = re.search(r"[A-Z]{1,4}\d{2,}[-/A-Z0-9]*", data["SCHADENSNUMMER"])
-        if m:
-            data["SCHADENSNUMMER"] = clean_text(m.group(0))
-
+    # ----------------------------
     # Datum
+    # ----------------------------
     data["UNFALL_DATUM"] = search_first(
         base_page,
         [
             r"Schadentag\s+(\d{2}\.\d{2}\.\d{4})",
+            r"Unfalldatum\s+(\d{2}\.\d{2}\.\d{4})",
             r"Unfalltag\s+(\d{2}\.\d{2}\.\d{4})",
         ],
     )
@@ -225,7 +244,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
+    # ----------------------------
     # Fahrzeugtyp
+    # ----------------------------
     data["FAHRZEUGTYP"] = search_first(
         p_vehicle or full,
         [
@@ -249,7 +270,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         )
         data["FAHRZEUGTYP"] = clean_text(" ".join(x for x in [fahrzeug1, fahrzeug2] if x))
 
+    # ----------------------------
     # Reparaturkosten / Wertminderung / WBW / Restwert
+    # ----------------------------
     data["REPARATURKOSTEN_NETTO"] = extract_money(
         p_summary or full,
         [
@@ -264,7 +287,6 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         [
             r"Reparaturkosten mit 19,00\s*%\s*MwSt\.\s+EUR\s+([0-9\.\,]+)",
             r"Reparaturkosten brutto\s*([0-9\.\, ]+)",
-            r"Reparaturkosten MwSt\.\s*([0-9\.\, ]+)",
         ],
     )
 
@@ -292,7 +314,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # Gutachterkosten aus Rechnung / Anhang
+    # ----------------------------
+    # Gutachterkosten aus Rechnung
+    # ----------------------------
     data["GUTACHTERKOSTEN_NETTO"] = extract_money(
         p_invoice or full,
         [
@@ -309,9 +333,12 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    data["VORSTEUERABZUG_RAW"] = ""
+    # Für Reparaturkosten immer netto erzwingen
+    data["VORSTEUERABZUG_RAW"] = "Ja"
 
+    # ----------------------------
     # Schadenhergang
+    # ----------------------------
     hergang = search_first(
         p_unfall or full,
         [
@@ -320,7 +347,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     )
     data["SCHADENHERGANG"] = clean_text(hergang)
 
+    # ----------------------------
     # Defaults
+    # ----------------------------
     data.setdefault("UNFALL_UHRZEIT", "")
     data.setdefault("UNFALL_STRASSE", "")
     data.setdefault("UNFALL_ORT", "")
