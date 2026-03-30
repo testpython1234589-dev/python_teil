@@ -218,7 +218,6 @@ def _gender_fields(anrede: str) -> Dict[str, str]:
         "GENDER2": "",
     }
 
-
 def _extract_sonderkosten_from_pdf(pdf_source: str | Path | bytes) -> List[Dict[str, str]]:
     if fitz is None:
         return []
