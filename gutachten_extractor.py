@@ -747,7 +747,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
         reparatur = rep_net if rep_net is not None else rep_br
         gutachter = gut_net if gut_net is not None else gut_br
     else:
-        reparatur = rep_br if rep_br is not None else rep_net
+        reparatur = rep_net if rep_net is not None else rep_br
         gutachter = gut_br if gut_br is not None else gut_net
 
     d["REPARATURKOSTEN"] = _money_to_str(reparatur)
