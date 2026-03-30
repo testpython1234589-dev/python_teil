@@ -320,8 +320,8 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["GUTACHTERKOSTEN_NETTO"] = extract_money(
         p_invoice or full,
         [
-            r"Rechnungsbetrag exkl\.\s*MwSt\s+EUR\s+([0-9\.\,]+)",
-            r"Rechnungsbetrag exkl\.\s*MwSt\s*([0-9\.\, ]+)",
+            r"Rechnungsbetrag inkl\.\s*MwSt\s+EUR\s+([0-9\.\,]+)",
+            r"Rechnungsbetrag inkl\.\s*MwSt\s*([0-9\.\, ]+)",
         ],
     )
 
