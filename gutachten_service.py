@@ -17,10 +17,10 @@ def build_context(template_keys: set[str], extracted: Dict[str, Any]) -> Dict[st
 
 def extract_from_pdf_bytes(pdf_bytes: bytes, gutachter_key: str) -> Dict[str, Any]:
     if gutachter_key == "schnur":
-        pages = gx._split_pages(gx.pdf_to_text(pdf_bytes))
+        text = gx.pdf_to_text(pdf_bytes)
+        pages = gx._split_pages(text)
         extracted = sx.parse_schnur(pages, pdf_source=pdf_bytes)
         derived = derive_with_existing_logic(extracted)
         return {**extracted, **derived}
 
-    # Standard = bisheriger GutachterExpress / bestehende Logik
     return gx.extract_from_pdf_bytes(pdf_bytes)
