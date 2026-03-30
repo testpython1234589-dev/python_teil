@@ -11,22 +11,6 @@ from common import (
 )
 
 
-def _line_value(page: str, label: str) -> str:
-    """
-    Holt den Wert hinter einem Label in einer Tabellen-/Zeilenstruktur.
-    Beispiel:
-    'Kennzeichen Unfallgegner    SLK PP47'
-    """
-    if not page:
-        return ""
-
-    pat = rf"{re.escape(label)}\s+(.+)"
-    m = re.search(pat, page, re.IGNORECASE)
-    if m:
-        return clean_text(m.group(1))
-    return ""
-
-
 def _extract_block_between(text: str, start_label: str, next_label: str) -> str:
     if not text:
         return ""
@@ -44,13 +28,12 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     full = "\n".join(pages)
     data: Dict[str, Any] = {}
 
-    # ----------------------------
-    # Seiten sauber identifizieren
-    # ----------------------------
+    # Relevante Seiten finden
     p1 = ""
     p_summary = ""
     p_vehicle = ""
     p_unfall = ""
+    p_invoice = ""
 
     for page in pages:
         lower = page.lower()
@@ -67,11 +50,12 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         if not p_unfall and "unfallhergang" in lower:
             p_unfall = page
 
+        if not p_invoice and "rechnung" in lower and "rechnungsbetrag inkl. mwst" in lower:
+            p_invoice = page
+
     base_page = p1 or full
 
-    # ----------------------------
-    # AKTENZEICHEN / GUTACHTEN-NR.
-    # ----------------------------
+    # Aktenzeichen / Schaden-Nr.
     data["AKTENZEICHEN"] = search_first(
         base_page,
         [
@@ -82,15 +66,19 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # ----------------------------
     # Mandant / Anspruchsteller
-    # ----------------------------
-    # Block zwischen Anspruchsteller und nächstem Feld
     anspruchsteller_block = _extract_block_between(
         base_page,
         "Anspruchsteller",
-        "Amtliches Kennzeichen",
+        "Schadentag",
     )
+
+    if not anspruchsteller_block:
+        anspruchsteller_block = _extract_block_between(
+            base_page,
+            "Anspruchsteller",
+            "Amtliches Kennzeichen",
+        )
 
     if not anspruchsteller_block:
         anspruchsteller_block = _extract_block_between(
@@ -101,13 +89,31 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     block_lines = [clean_text(x) for x in anspruchsteller_block.split("\n") if clean_text(x)]
 
-    raw_name = block_lines[0] if len(block_lines) >= 1 else ""
+    raw_name = ""
+    street = ""
+    plz_ort = ""
+
+    if len(block_lines) >= 4 and block_lines[0].lower() in {"frau", "herr"}:
+        raw_name = f"{block_lines[0]} {block_lines[1]}"
+        street = block_lines[2]
+        plz_ort = block_lines[3]
+    elif len(block_lines) >= 3:
+        raw_name = block_lines[0]
+        street = block_lines[1]
+        plz_ort = block_lines[2]
+    elif len(block_lines) >= 2:
+        raw_name = block_lines[0]
+        if re.search(r"\d{5}\s+", block_lines[1]):
+            plz_ort = block_lines[1]
+        else:
+            street = block_lines[1]
+
     anrede, clean_name = cleanup_name(raw_name)
 
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
-    data["MANDANT_STRASSE"] = block_lines[1] if len(block_lines) >= 2 else ""
-    data["MANDANT_PLZ_ORT"] = block_lines[2] if len(block_lines) >= 3 else ""
+    data["MANDANT_STRASSE"] = street
+    data["MANDANT_PLZ_ORT"] = plz_ort
 
     # Fallbacks
     if not data["MANDANT_NAME"]:
@@ -137,9 +143,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
             ],
         )
 
-    # ----------------------------
-    # Kennzeichen eigenes Fahrzeug
-    # ----------------------------
+    # Kennzeichen
     data["KENNZEICHEN_MANDANT"] = search_first(
         base_page,
         [
@@ -148,9 +152,6 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # ----------------------------
-    # Kennzeichen Gegner
-    # ----------------------------
     data["KENNZEICHEN_GEGNER"] = search_first(
         base_page,
         [
@@ -159,9 +160,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # ----------------------------
     # Versicherung
-    # ----------------------------
     vers_block = _extract_block_between(
         base_page,
         "Versicherung",
@@ -173,6 +172,12 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["VER_STRASSE"] = vers_lines[1] if len(vers_lines) >= 2 else ""
     data["VER_ORT"] = vers_lines[2] if len(vers_lines) >= 3 else ""
 
+    if data["VER_STRASSE"] and not data["VER_ORT"]:
+        m = re.match(r"(.+?),\s*(\d{5}\s+.+)", data["VER_STRASSE"])
+        if m:
+            data["VER_STRASSE"] = clean_text(m.group(1))
+            data["VER_ORT"] = clean_text(m.group(2))
+
     if not data["VERSICHERUNG"]:
         data["VERSICHERUNG"] = search_first(
             base_page,
@@ -181,12 +186,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
             ],
         )
 
-    # ----------------------------
     # Schadensnummer
-    # Beispiel:
-    # DG2026-20012516 / DG-200936109
-    # -> links = Schadensnummer
-    # ----------------------------
     schaden_combo = search_first(
         base_page,
         [
@@ -203,15 +203,12 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         data["SCHADENSNUMMER"] = clean_text(schaden_combo)
         data["VERSICHERUNGSSCHEINNUMMER"] = ""
 
-    # Extra-Schutz: nur typische Schadensnummer rausziehen
     if data["SCHADENSNUMMER"]:
         m = re.search(r"[A-Z]{1,4}\d{2,}[-/A-Z0-9]*", data["SCHADENSNUMMER"])
         if m:
             data["SCHADENSNUMMER"] = clean_text(m.group(0))
 
-    # ----------------------------
     # Datum
-    # ----------------------------
     data["UNFALL_DATUM"] = search_first(
         base_page,
         [
@@ -228,21 +225,14 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # ----------------------------
     # Fahrzeugtyp
-    # Beispiel:
-    # Typ / Untertyp    Duster I / Destination 4x2
-    # ----------------------------
     data["FAHRZEUGTYP"] = search_first(
         p_vehicle or full,
         [
             r"Typ\s*/\s*Untertyp\s+(.+?)\n",
-            r"Fahrzeugart\s+(.+?)\n",
-            r"Fahrzeug\s+(.+?)\n",
         ],
     )
 
-    # Fallback: Fahrzeug + Typ kombinieren
     if not data["FAHRZEUGTYP"]:
         fahrzeug1 = search_first(
             p_vehicle or full,
@@ -259,10 +249,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         )
         data["FAHRZEUGTYP"] = clean_text(" ".join(x for x in [fahrzeug1, fahrzeug2] if x))
 
-    # ----------------------------
-    # Reparaturkosten / Wertminderung
-    # Seite "Zusammenfassung des Gutachtens"
-    # ----------------------------
+    # Reparaturkosten / Wertminderung / WBW / Restwert
     data["REPARATURKOSTEN_NETTO"] = extract_money(
         p_summary or full,
         [
@@ -305,9 +292,26 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # ----------------------------
+    # Gutachterkosten aus Rechnung / Anhang
+    data["GUTACHTERKOSTEN_NETTO"] = extract_money(
+        p_invoice or full,
+        [
+            r"Rechnungsbetrag exkl\.\s*MwSt\s+EUR\s+([0-9\.\,]+)",
+            r"Rechnungsbetrag exkl\.\s*MwSt\s*([0-9\.\, ]+)",
+        ],
+    )
+
+    data["GUTACHTERKOSTEN_BRUTTO"] = extract_money(
+        p_invoice or full,
+        [
+            r"Rechnungsbetrag inkl\.\s*MwSt\.\s+EUR\s+([0-9\.\,]+)",
+            r"Rechnungsbetrag inkl\.\s*MwSt\.\s*([0-9\.\, ]+)",
+        ],
+    )
+
+    data["VORSTEUERABZUG_RAW"] = ""
+
     # Schadenhergang
-    # ----------------------------
     hergang = search_first(
         p_unfall or full,
         [
@@ -316,14 +320,10 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     )
     data["SCHADENHERGANG"] = clean_text(hergang)
 
-    # ----------------------------
-    # Defaults für restliche Felder
-    # ----------------------------
+    # Defaults
     data.setdefault("UNFALL_UHRZEIT", "")
     data.setdefault("UNFALL_STRASSE", "")
     data.setdefault("UNFALL_ORT", "")
-    data.setdefault("GUTACHTERKOSTEN_NETTO", "")
-    data.setdefault("GUTACHTERKOSTEN_BRUTTO", "")
     data.setdefault("WERTVERBESSERUNG", "")
     data.setdefault("MELDUNGSKOSTEN_RAW", "")
     data.setdefault("ZUSATZKOSTEN1_NAME", "")
