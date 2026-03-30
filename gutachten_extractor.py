@@ -197,9 +197,9 @@ def _gender_fields(anrede: str) -> Dict[str, str]:
 
     if a == "frau":
         return {
-            "GENDERN1": "ihrer",
+            "GENDERN1": "Ihrer",
             "GENDERN2": "meiner Mandantin",
-            "GENDER1": "ihrer",
+            "GENDER1": "Ihrer",
             "GENDER2": "meiner Mandantin",
         }
 
