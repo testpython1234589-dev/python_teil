@@ -154,7 +154,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
                     )
 
                 if st.button("Hinweis einfügen", key="btn_hinweis"):
-                    st.session_state[widget_key] = "Hinweis: xyz"
+                    st.session_state[widget_key] = "Hinweis im Hinblick Schadenserweiterung (Nutzungsausfall/Mietwagen): Mein Mandant ist nicht in der Lage, den immensen Schaden vorzufinanzieren, sondern erst, wenn er den Schadensbetrag rasch erhält. Sofern Sie hier konkrete Nachweise benötigen, lassen Sie es unbedingt wissen."
                     st.session_state["hinweis_button_clicked"] = True
                     st.rerun()
 
