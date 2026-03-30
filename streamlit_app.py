@@ -129,21 +129,42 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     cols = st.columns(3)
 
     for i, k in enumerate(keys_sorted):
-        col = cols[i % 3]
-        widget_key = f"rev_{k}"
+        for i, k in enumerate(keys_sorted):
+    col = cols[i % 3]
+    widget_key = f"rev_{k}"
 
-        if widget_key not in st.session_state:
-            st.session_state[widget_key] = "" if ctx.get(k) is None else str(ctx.get(k, ""))
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = "" if ctx.get(k) is None else str(ctx.get(k, ""))
 
-        if k in {"SCHADENHERGANG", "SONSTIGE"}:
-            col.text_area(k, height=160, key=widget_key)
-        else:
-            col.text_input(k, key=widget_key)
+    if k == "HINWEIS":
+        flag_key = "hinweis_button_clicked"
+        st.session_state.setdefault(flag_key, False)
 
-        updated[k] = st.session_state[widget_key]
+        with col:
+            if st.session_state[flag_key]:
+                st.markdown(
+                    "<div style='padding:6px;border-radius:6px;background:#d4edda;color:#155724;font-weight:bold;'>Hinweis eingefügt</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    "<div style='padding:6px;border-radius:6px;background:#f8d7da;color:#721c24;font-weight:bold;'>Hinweis fehlt</div>",
+                    unsafe_allow_html=True,
+                )
 
-    return updated
+            if st.button("Hinweis einfügen", key="btn_hinweis"):
+                st.session_state[widget_key] = "Hinweis: xyz"
+                st.session_state[flag_key] = True
+                st.rerun()
 
+            st.text_area(k, height=120, key=widget_key)
+
+    elif k in {"SCHADENHERGANG", "SONSTIGE"}:
+        col.text_area(k, height=160, key=widget_key)
+    else:
+        col.text_input(k, key=widget_key)
+
+    updated[k] = st.session_state[widget_key]
 
 st.set_page_config(page_title="Gutachten → Schreiben", layout="wide")
 ensure_state()
