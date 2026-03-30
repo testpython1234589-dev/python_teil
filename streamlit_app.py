@@ -8,8 +8,14 @@ import gutachten_service as gs
 
 
 TEMPLATES = {
-    "Standard Schreiben": ("vorlage_schreiben-1.docx", "Standard_schreiben"),
-    "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1.docx", "schreibentotalschaden"),
+    "gutachterexpress": {
+        "Standard Schreiben": ("vorlage_schreiben_gutachterexpress.docx", "Standard_schreiben_gutachterexpress"),
+        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden_gutachterexpress.docx", "schreibentotalschaden_gutachterexpress"),
+    },
+    "schnur": {
+        "Standard Schreiben": ("vorlage_schreiben_schnur.docx", "Standard_schreiben_schnur"),
+        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden_schnur.docx", "schreibentotalschaden_schnur"),
+    },
 }
 
 GUTACHTER = {
@@ -147,8 +153,9 @@ st.title("Gutachten → Word-Schreiben")
 gutachter_label = st.selectbox("Gutachter wählen", list(GUTACHTER.keys()))
 gutachter_key = GUTACHTER[gutachter_label]
 
-template_label = st.selectbox("Vorlage wählen", list(TEMPLATES.keys()))
-tpl_name, out_prefix = TEMPLATES[template_label]
+available_templates = TEMPLATES[gutachter_key]
+template_label = st.selectbox("Vorlage wählen", list(available_templates.keys()))
+tpl_name, out_prefix = available_templates[template_label]
 
 pdf_file = st.file_uploader("Gutachten als PDF hochladen", type=["pdf"])
 show_debug = st.toggle("Debug anzeigen (Extrahierte Werte)", value=True)
