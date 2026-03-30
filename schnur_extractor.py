@@ -145,6 +145,17 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         raw_name = lines[0]
 
     anrede, clean_name = cleanup_name(raw_name)
+
+    if not anrede:
+    if re.search(r"\bfrau\b", anspruchsteller_block, re.IGNORECASE):
+        anrede = "Frau"
+    elif re.search(r"\bherr\b", anspruchsteller_block, re.IGNORECASE):
+        anrede = "Herr"
+    else:
+        first_name = clean_name.split()[0].strip().lower() if clean_name.strip() else ""
+        if first_name in {"regina"}:
+            anrede = "Frau"
+    
     mandant_strasse, mandant_plz_ort = _split_street_plz_ort(address_line)
 
     data["MANDANT_ANREDE"] = anrede
