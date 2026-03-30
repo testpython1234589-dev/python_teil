@@ -9,10 +9,6 @@ import gutachten_service as gs
 
 TEMPLATES = {
     "Standard Schreiben": ("vorlage_schreiben-1.docx", "Standard_schreiben"),
-    "130 Prozent": ("vorlage_130_prozent-1.docx", "130_prozent"),
-    "Totalschaden (konkret)": ("vorlage_totalschaden_konkret-1.docx", "totalschaden_konkret"),
-    "Konkret unter WBW": ("vorlage_konkret_unter_wbw-1.docx", "konkret_unter_wbw"),
-    "Totalschaden (fiktiv)": ("vorlage_totalschaden_fiktiv-1.docx", "totalschaden_fiktiv"),
     "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1.docx", "schreibentotalschaden"),
 }
 
