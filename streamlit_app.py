@@ -9,8 +9,8 @@ import gutachten_service as gs
 
 TEMPLATES = {
     "gutachterexpress": {
-        "Standard Schreiben": ("vorlage_schreiben-1.docx", "Standard_schreiben"),
-        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1.docx", "schreibentotalschaden"),
+        "Standard Schreiben": ("vorlage_schreiben-1-express.docx", "Standard_schreiben"),
+        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1-express.docx", "schreibentotalschaden"),
     },
     "schnur": {
         "Standard Schreiben": ("vorlage_schreiben-1-schnur.docx", "Standard_schreiben_schnur"),
