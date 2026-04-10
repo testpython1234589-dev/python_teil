@@ -421,10 +421,13 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         ],
     )
     data["WERTMINDERUNG"] = _extract_money(
-        p_summary + "\n" + p_wbw + "\n" + p_minder,
+        p_summary + "\n" + p_wbw + "\n" + p_minder + "\n" + full,
         [
             r"Merkantiler Minderwert \(steuerneutral\)\s*\+?\s*([0-9\., ]+)",
-            r"Minderwert:\s*([0-9\., ]+)",
+            r"Merkantile(?:r)? Wertminderung\s*[: ]*([0-9\., ]+)",
+            r"Wertminderung\s*[: ]*([0-9\., ]+)",
+            r"Minderwert\s*[: ]*([0-9\., ]+)",
+            r"Merkantiler Minderwert (steuerneutral)\s*[: ]*([0-9\., ]+)"
             r"Vom Sachverständigen festgelegter Wert\s+([0-9\., ]+)",
         ],
     )
@@ -441,7 +444,15 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
     else:
         data["RESTWERT"] = _extract_money(full, [r"Restwert(?:ermittlung)?[: ]+([0-9\., ]+)"])
 
-    data["WERTVERBESSERUNG"] = _extract_money(full, [r"Wertverbesserung[: ]+([0-9\., ]+)"])
+    data["WERTVERBESSERUNG"] = _extract_money(
+        full,
+        [
+            r"Wertverbesserung\s*[: ]*([0-9\., ]+)",
+            r"Wertverbesserung (steuerneutral)\s*[: ]*([0-9\., ]+)",
+            r"Wertverbesserung\/Abzug\s*[: ]*([0-9\., ]+)",
+            r"Abzug neu für alt\s*[: ]*([0-9\., ]+)",
+        ],
+    )
     data["GUTACHTERKOSTEN_NETTO"] = _extract_money(p_invoice, [r"Gesamtbetrag ohne MwSt\.\s*([0-9\., ]+)"])
     data["GUTACHTERKOSTEN_BRUTTO"] = _extract_money(p_invoice, [r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+)"])
 
