@@ -64,40 +64,50 @@ def _next_line_after_exact_label(lines: List[str], label: str) -> str:
     return ""
 
 
-def _infer_anrede_from_pages(pages: List[str], clean_name: str) -> str:
+def _find_name_block_in_lines(lines: List[str], clean_name: str) -> tuple[str, str, str]:
     """
-    Robust:
-    - suche Zeile 'Herr'/'Frau' direkt vor dem Namen
-    - oder suche 'Herr <Name>' / 'Frau <Name>' in derselben Zeile
+    Sucht im Briefkopf:
+    Herr/Frau
+    Vorname Nachname
+    Straße
+    PLZ Ort
     """
     if not clean_name:
-        return ""
+        return "", "", ""
 
     name_norm = clean_text(clean_name).lower()
 
-    for page in pages:
-        lines = _get_lines(page)
+    for i, line in enumerate(lines):
+        line_norm = clean_text(line).lower()
 
-        for i, line in enumerate(lines):
-            line_norm = clean_text(line).lower()
+        # Fall 1: eigene Zeile mit Name, Zeile davor ist Herr/Frau
+        if line_norm == name_norm:
+            anrede = ""
+            if i - 1 >= 0:
+                prev_line = clean_text(lines[i - 1]).lower()
+                if prev_line == "herr":
+                    anrede = "Herr"
+                elif prev_line == "frau":
+                    anrede = "Frau"
 
-            # Fall 1: eigene Zeile direkt vor Name
-            if line_norm == name_norm:
-                if i - 1 >= 0:
-                    prev_line = clean_text(lines[i - 1]).lower()
-                    if prev_line == "herr":
-                        return "Herr"
-                    if prev_line == "frau":
-                        return "Frau"
+            street = clean_text(lines[i + 1]) if i + 1 < len(lines) else ""
+            city = clean_text(lines[i + 2]) if i + 2 < len(lines) else ""
 
-            # Fall 2: gleiche Zeile "Herr Steffen Altwein"
-            if line_norm in {f"herr {name_norm}", f"frau {name_norm}"}:
-                if line_norm.startswith("herr "):
-                    return "Herr"
-                if line_norm.startswith("frau "):
-                    return "Frau"
+            if anrede:
+                return anrede, street, city
 
-    return ""
+        # Fall 2: gleiche Zeile "Herr Steffen Altwein"
+        if line_norm == f"herr {name_norm}":
+            street = clean_text(lines[i + 1]) if i + 1 < len(lines) else ""
+            city = clean_text(lines[i + 2]) if i + 2 < len(lines) else ""
+            return "Herr", street, city
+
+        if line_norm == f"frau {name_norm}":
+            street = clean_text(lines[i + 1]) if i + 1 < len(lines) else ""
+            city = clean_text(lines[i + 2]) if i + 2 < len(lines) else ""
+            return "Frau", street, city
+
+    return "", "", ""
 
 
 def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
@@ -135,14 +145,16 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     summary_lines = _get_lines(p_summary)
     invoice_lines = _get_lines(p_invoice)
     vehicle_lines = _get_lines(p_vehicle)
+    all_lines = _get_lines(full)
 
-    base_lines = summary_lines or invoice_lines or _get_lines(full)
+    base_lines = summary_lines or invoice_lines or all_lines
 
     # Aktenzeichen / Gutachtennummer
     aktenzeichen = (
         _value_after_inline_label(invoice_lines, "Betreff Haftpflichtschaden -")
         or _next_line_after_exact_label(invoice_lines, "Gutachten - Nummer angeben!")
     )
+
     if aktenzeichen:
         m = re.search(r"\b(5[A-Z0-9]+)\b", aktenzeichen)
         data["AKTENZEICHEN"] = m.group(1) if m else clean_text(aktenzeichen)
@@ -152,22 +164,46 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     # Mandant
     raw_name = _value_after_inline_label(base_lines, "Anspruchsteller")
-    anrede, clean_name = cleanup_name(raw_name)
+    _, clean_name = cleanup_name(raw_name)
 
+    anrede = ""
+    mandant_strasse = ""
+    mandant_plz_ort = ""
+
+    # 1) Erst Briefkopf Rechnung
+    if p_invoice:
+        anrede, mandant_strasse, mandant_plz_ort = _find_name_block_in_lines(invoice_lines, clean_name)
+
+    # 2) Dann Briefkopf anderer Seiten
     if not anrede:
-        anrede = _infer_anrede_from_pages(pages, clean_name)
+        for lines in (summary_lines, all_lines):
+            anrede2, street2, city2 = _find_name_block_in_lines(lines, clean_name)
+            if anrede2:
+                anrede = anrede2
+                if not mandant_strasse:
+                    mandant_strasse = street2
+                if not mandant_plz_ort:
+                    mandant_plz_ort = city2
+                break
+
+    # 3) Fallback Adresse aus Anspruchstellerzeile der Zusammenfassung
+    if not mandant_strasse or not mandant_plz_ort:
+        mandant_addr = ""
+        for i, line in enumerate(base_lines):
+            if clean_text(line).lower().startswith("anspruchsteller "):
+                if i + 1 < len(base_lines):
+                    mandant_addr = base_lines[i + 1]
+                break
+
+        m_strasse, m_plz_ort = _split_street_plz_ort(mandant_addr)
+
+        if not mandant_strasse:
+            mandant_strasse = m_strasse
+        if not mandant_plz_ort:
+            mandant_plz_ort = m_plz_ort
 
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
-
-    mandant_addr = ""
-    for i, line in enumerate(base_lines):
-        if clean_text(line).lower().startswith("anspruchsteller "):
-            if i + 1 < len(base_lines):
-                mandant_addr = base_lines[i + 1]
-            break
-
-    mandant_strasse, mandant_plz_ort = _split_street_plz_ort(mandant_addr)
     data["MANDANT_STRASSE"] = mandant_strasse
     data["MANDANT_PLZ_ORT"] = mandant_plz_ort
 
@@ -272,7 +308,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         if not schadenumfang:
             schadenumfang = _extract_block_between(p_schadenumfang, "Schadenumfang", "Bemerkung")
 
-    data["SCHADENHERGANG"] = clean_text("\n".join(x for x in [hergang, schadenumfang] if x))
+    data["SCHADENHERGANG"] = clean_text("\n".join(x for x in [hergang, schadenumfang] if x]))
 
     # Defaults
     data.setdefault("UNFALL_UHRZEIT", "")
