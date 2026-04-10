@@ -10,55 +10,20 @@ from common import (
 )
 
 
+def _normalize_compare_text(value: str) -> str:
+    value = clean_text(value or "")
 
-def _extract_anrede_from_briefkopf(lines: List[str], clean_name: str) -> str:
-    if not clean_name:
-        return ""
+    for ch in ("\u00ad", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212"):
+        value = value.replace(ch, "-")
 
-    name_norm = clean_text(clean_name).lower()
+    value = re.sub(r"\s+", " ", value)
+    return value.strip().lower()
 
-    stop_words = {
-        "bei rückfragen bitte",
-        "gutachten - nummer angeben!",
-        "rechnungsnummer angeben!",
-        "g u t a c h t e n",
-        "r e c h n u n g",
-        "betrifft",
-        "amtliches kennzeichen",
-        "versicherung",
-        "schadennummer",
-        "versicherungsnehmer",
-        "kennzeichen unfallgegner",
-        "anspruchsteller",
-        "schadentag",
-        "besichtigungsdatum",
-        "reparaturfirma",
-    }
-
-    for i, line in enumerate(lines):
-        current = clean_text(line).lower()
-        if current not in {"herr", "frau"}:
-            continue
-
-        parts: List[str] = []
-        for j in range(i + 1, min(i + 5, len(lines))):
-            part = clean_text(lines[j])
-            if not part:
-                continue
-            if part.lower() in stop_words:
-                break
-
-            parts.append(part)
-            combined = clean_text(" ".join(parts)).lower()
-
-            if combined == name_norm:
-                return "Herr" if current == "herr" else "Frau"
-
-    return ""
 
 def _extract_block_between(text: str, start_label: str, next_label: str) -> str:
     if not text:
         return ""
+
     m = re.search(
         rf"{re.escape(start_label)}\s+(.+?)\s+{re.escape(next_label)}",
         text,
@@ -93,26 +58,31 @@ def _get_lines(text: str) -> List[str]:
 
 
 def _value_after_inline_label(lines: List[str], label: str) -> str:
-    label_norm = clean_text(label).lower()
+    label_norm = _normalize_compare_text(label)
+
     for line in lines:
         line_clean = clean_text(line)
-        line_lower = line_clean.lower()
-        if line_lower.startswith(label_norm):
+        line_norm = _normalize_compare_text(line_clean)
+
+        if line_norm.startswith(label_norm):
             return clean_text(line_clean[len(label):].strip(" :"))
+
     return ""
 
 
 def _next_line_after_exact_label(lines: List[str], label: str) -> str:
-    label_norm = clean_text(label).lower()
+    label_norm = _normalize_compare_text(label)
+
     for i, line in enumerate(lines):
-        if clean_text(line).lower() == label_norm and i + 1 < len(lines):
-            return lines[i + 1]
+        if _normalize_compare_text(line) == label_norm and i + 1 < len(lines):
+            return clean_text(lines[i + 1])
+
     return ""
 
 
 def _extract_anrede_from_briefkopf(lines: List[str], clean_name: str) -> str:
     """
-    Erkennt z. B.
+    Erkennt z. B.:
     Herr
     Hans-Peter Kliem
     Mobile Schlosserei
@@ -122,40 +92,59 @@ def _extract_anrede_from_briefkopf(lines: List[str], clean_name: str) -> str:
     if not clean_name:
         return ""
 
-    name_norm = clean_text(clean_name).lower()
+    target = _normalize_compare_text(clean_name)
 
-    for i in range(len(lines) - 1):
-        current = clean_text(lines[i]).lower()
+    stop_labels = {
+        "bei rückfragen bitte",
+        "gutachten - nummer angeben!",
+        "rechnungsnummer angeben!",
+        "gutachten nummer angeben!",
+        "g u t a c h t e n",
+        "r e c h n u n g",
+        "betrifft",
+        "amtliches kennzeichen",
+        "versicherung",
+        "schadennummer",
+        "versicherungsnehmer",
+        "kennzeichen unfallgegner",
+        "anspruchsteller",
+        "schadentag",
+        "besichtigungsdatum",
+        "reparaturfirma",
+        "zusammenfassung des gutachtens:",
+    }
+
+    for i, line in enumerate(lines):
+        current = _normalize_compare_text(line)
 
         if current not in {"herr", "frau"}:
             continue
 
         parts: List[str] = []
-        for j in range(i + 1, min(i + 5, len(lines))):
-            part = clean_text(lines[j])
+
+        for j in range(i + 1, min(i + 6, len(lines))):
+            raw_part = clean_text(lines[j])
+            part = _normalize_compare_text(raw_part)
+
             if not part:
                 continue
 
-            # stoppe bei offensichtlichen Nicht-Namenszeilen
-            if any(x in part.lower() for x in [
-                "bei rückfragen",
-                "gutachten - nummer",
-                "rechnungsnummer",
-                "g u t a c h t e n",
-                "r e c h n u n g",
-                "betrifft",
-                "amtliches kennzeichen",
-                "versicherung",
-                "schadennummer",
-                "schadentag",
-                "besichtigungsdatum",
-            ]):
+            if re.search(r"\b\d{5}\b", raw_part):
+                break
+
+            if part in stop_labels:
                 break
 
             parts.append(part)
-            combined = clean_text(" ".join(parts)).lower()
+            combined = " ".join(parts).strip()
 
-            if combined == name_norm:
+            if combined == target:
+                return "Herr" if current == "herr" else "Frau"
+
+            if target.startswith(combined):
+                continue
+
+            if combined.startswith(target):
                 return "Herr" if current == "herr" else "Frau"
 
     return ""
@@ -176,7 +165,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     for page in pages:
         lower = page.lower()
 
-        if not p_invoice and "rechnung" in lower and "rechnungsbetrag inkl. mwst" in lower:
+        if not p_invoice and "rechnung" in lower and "rechnungsbetrag inkl" in lower:
             p_invoice = page
 
         if not p_summary and "zusammenfassung des gutachtens" in lower:
@@ -192,8 +181,8 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
             p_schadenumfang = page
 
         if not p_wbw and (
-            "wiederbeschaffungswert geschätzt" in lower
-            or "wiederbeschaffungswert:" in lower
+            "wiederbeschaffungswert" in lower
+            or "restwert" in lower
         ):
             p_wbw = page
 
@@ -210,9 +199,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     # AKTENZEICHEN / Gutachtennummer
     aktenzeichen = (
-        _value_after_inline_label(invoice_lines, "Betreff Haftpflichtschaden -")
+        _next_line_after_exact_label(summary_lines, "Gutachten - Nummer angeben!")
+        or _value_after_inline_label(invoice_lines, "Betreff Haftpflichtschaden -")
         or _next_line_after_exact_label(invoice_lines, "Gutachten - Nummer angeben!")
-        or _next_line_after_exact_label(summary_lines, "Gutachten - Nummer angeben!")
     )
 
     if aktenzeichen:
@@ -225,26 +214,27 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     # MANDANT
     raw_name = _value_after_inline_label(base_lines, "Anspruchsteller")
     _, clean_name = cleanup_name(raw_name)
-    
+
     anrede = (
         _extract_anrede_from_briefkopf(summary_lines, clean_name)
         or _extract_anrede_from_briefkopf(invoice_lines, clean_name)
         or _extract_anrede_from_briefkopf(all_lines, clean_name)
     )
-    
+
     mandant_addr = ""
     for i, line in enumerate(base_lines):
-        if clean_text(line).lower().startswith("anspruchsteller "):
+        if _normalize_compare_text(line).startswith("anspruchsteller "):
             if i + 1 < len(base_lines):
                 mandant_addr = base_lines[i + 1]
             break
-    
+
     mandant_strasse, mandant_plz_ort = _split_street_plz_ort(mandant_addr)
-    
+
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
     data["MANDANT_STRASSE"] = mandant_strasse
     data["MANDANT_PLZ_ORT"] = mandant_plz_ort
+
     # KENNZEICHEN
     data["KENNZEICHEN_MANDANT"] = _value_after_inline_label(base_lines, "Amtliches Kennzeichen")
     data["KENNZEICHEN_GEGNER"] = _value_after_inline_label(base_lines, "Kennzeichen Unfallgegner")
@@ -254,7 +244,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     vers_addr = ""
     for i, line in enumerate(base_lines):
-        if clean_text(line).lower().startswith("versicherung "):
+        if _normalize_compare_text(line).startswith("versicherung "):
             if i + 1 < len(base_lines):
                 vers_addr = base_lines[i + 1]
             break
@@ -270,7 +260,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         or _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
         or _value_after_inline_label(invoice_lines, "Versicherungsscheinnummer")
     )
-    
+
     data["VERSICHERUNGSSCHEINNUMMER"] = (
         _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
         or _value_after_inline_label(invoice_lines, "Versicherungsscheinnummer")
@@ -295,9 +285,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["REPARATURKOSTEN_BRUTTO"] = extract_money(
         p_summary + "\n" + p_calc + "\n" + full,
         [
-            r"Reparaturkosten mit 19,00\s*%\s*MwSt\.\s+EUR\s+([0-9\.\,]+)",
             r"Reparaturkosten geschätzt mit 19,00\s*%\s*MwSt\.\s+EUR\s+([0-9\.\,]+)",
             r"Reparaturkosten geschätzt:\s*\(inkl\.\s*MwSt\.\)\s*EUR\s*([0-9\.\,]+)",
+            r"Reparaturkosten mit 19,00\s*%\s*MwSt\.\s+EUR\s+([0-9\.\,]+)",
             r"Reparaturkosten brutto\s*:\s*([0-9\.\,]+)",
         ],
     )
