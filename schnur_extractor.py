@@ -71,14 +71,6 @@ def _next_line_after_exact_label(lines: List[str], label: str) -> str:
     return ""
 
 
-def _find_page_by_terms(pages: List[str], terms: List[str]) -> str:
-    for page in pages:
-        lower = page.lower()
-        if all(term.lower() in lower for term in terms):
-            return page
-    return ""
-
-
 def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     full = "\n".join(pages)
     data: Dict[str, Any] = {}
@@ -117,7 +109,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     base_lines = summary_lines or invoice_lines or _get_lines(full)
 
-    # Aktenzeichen / Gutachtennummer
+    # Gutachtennummer / Aktenzeichen
     data["AKTENZEICHEN"] = (
         _value_after_inline_label(invoice_lines, "Betreff Haftpflichtschaden -")
         or _next_line_after_exact_label(invoice_lines, "Gutachten - Nummer angeben!")
@@ -128,14 +120,15 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     raw_name = _value_after_inline_label(base_lines, "Anspruchsteller")
     anrede, clean_name = cleanup_name(raw_name)
 
-    if not anrede:
-        for line in invoice_lines:
-            if clean_text(line).lower() == "herr":
-                anrede = "Herr"
-                break
-            if clean_text(line).lower() == "frau":
-                anrede = "Frau"
-                break
+    if not anrede and p_invoice:
+        for i, line in enumerate(invoice_lines):
+            line_clean = clean_text(line)
+            if line_clean.lower() in {"herr", "frau"}:
+                if i + 1 < len(invoice_lines):
+                    next_line = clean_text(invoice_lines[i + 1])
+                    if next_line.lower() == clean_name.lower():
+                        anrede = line_clean.title()
+                        break
 
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
@@ -155,7 +148,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["KENNZEICHEN_MANDANT"] = _value_after_inline_label(base_lines, "Amtliches Kennzeichen")
     data["KENNZEICHEN_GEGNER"] = _value_after_inline_label(base_lines, "Kennzeichen Unfallgegner")
 
-    # Versicherung streng zeilenweise
+    # Versicherung
     data["VERSICHERUNG"] = _value_after_inline_label(base_lines, "Versicherung")
 
     vers_addr = ""
@@ -236,7 +229,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # Standardschreiben Schnur: Reparatur netto
+    # Schnur Standardschreiben Reparaturschaden: Reparatur netto
     data["VORSTEUERABZUG_RAW"] = ""
 
     # Schadenhergang + Schadenumfang
