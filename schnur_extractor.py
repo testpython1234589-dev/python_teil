@@ -66,58 +66,51 @@ def _next_line_after_exact_label(lines: List[str], label: str) -> str:
 
 def _extract_anrede_from_briefkopf(lines: List[str], clean_name: str) -> str:
     """
-    Sucht Muster:
+    Erkennt z. B.
     Herr
-    Steffen Altwein
+    Hans-Peter Kliem
+    Mobile Schlosserei
 
-    oder:
-    Frau
-    Erika Muster
+    wenn clean_name = 'Hans-Peter Kliem Mobile Schlosserei'
     """
     if not clean_name:
         return ""
 
     name_norm = clean_text(clean_name).lower()
 
-    for i, line in enumerate(lines):
-        line_norm = clean_text(line).lower()
+    for i in range(len(lines) - 1):
+        current = clean_text(lines[i]).lower()
 
-        if line_norm == name_norm and i - 1 >= 0:
-            prev_line = clean_text(lines[i - 1]).lower()
-            if prev_line == "herr":
-                return "Herr"
-            if prev_line == "frau":
-                return "Frau"
+        if current not in {"herr", "frau"}:
+            continue
 
-        if line_norm == f"herr {name_norm}":
-            return "Herr"
-        if line_norm == f"frau {name_norm}":
-            return "Frau"
+        parts: List[str] = []
+        for j in range(i + 1, min(i + 5, len(lines))):
+            part = clean_text(lines[j])
+            if not part:
+                continue
 
-    return ""
+            # stoppe bei offensichtlichen Nicht-Namenszeilen
+            if any(x in part.lower() for x in [
+                "bei rückfragen",
+                "gutachten - nummer",
+                "rechnungsnummer",
+                "g u t a c h t e n",
+                "r e c h n u n g",
+                "betrifft",
+                "amtliches kennzeichen",
+                "versicherung",
+                "schadennummer",
+                "schadentag",
+                "besichtigungsdatum",
+            ]):
+                break
 
+            parts.append(part)
+            combined = clean_text(" ".join(parts)).lower()
 
-def _extract_anrede_from_fahrzeughalter(lines: List[str], clean_name: str) -> str:
-    """
-    Sucht Muster aus Kalkulationsseiten:
-    Fahrzeughalter : Herr
-    Steffen Altwein
-    """
-    if not clean_name:
-        return ""
-
-    name_norm = clean_text(clean_name).lower()
-
-    for i, line in enumerate(lines):
-        line_norm = clean_text(line).lower()
-
-        if line_norm.startswith("fahrzeughalter"):
-            if "herr" in line_norm:
-                if i + 1 < len(lines) and clean_text(lines[i + 1]).lower() == name_norm:
-                    return "Herr"
-            if "frau" in line_norm:
-                if i + 1 < len(lines) and clean_text(lines[i + 1]).lower() == name_norm:
-                    return "Frau"
+            if combined == name_norm:
+                return "Herr" if current == "herr" else "Frau"
 
     return ""
 
@@ -152,7 +145,10 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         if not p_schadenumfang and "schadenumfang" in lower:
             p_schadenumfang = page
 
-        if not p_wbw and "wiederbeschaffungswert geschätzt" in lower:
+        if not p_wbw and (
+            "wiederbeschaffungswert geschätzt" in lower
+            or "wiederbeschaffungswert:" in lower
+        ):
             p_wbw = page
 
         if not p_calc and "fahrzeughalter" in lower and "reparaturkosten-kalkulation" in lower:
@@ -170,6 +166,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     aktenzeichen = (
         _value_after_inline_label(invoice_lines, "Betreff Haftpflichtschaden -")
         or _next_line_after_exact_label(invoice_lines, "Gutachten - Nummer angeben!")
+        or _next_line_after_exact_label(summary_lines, "Gutachten - Nummer angeben!")
     )
 
     if aktenzeichen:
@@ -189,7 +186,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     if not anrede:
         anrede = _extract_anrede_from_briefkopf(summary_lines, clean_name)
     if not anrede:
-        anrede = _extract_anrede_from_fahrzeughalter(calc_lines, clean_name)
+        anrede = _extract_anrede_from_briefkopf(all_lines, clean_name)
 
     mandant_addr = ""
     for i, line in enumerate(base_lines):
@@ -223,9 +220,18 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["VER_STRASSE"] = ver_strasse
     data["VER_ORT"] = ver_ort
 
-    # SCHADENSNUMMER / Versicherungsscheinnummer
-    data["SCHADENSNUMMER"] = _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
-    data["VERSICHERUNGSSCHEINNUMMER"] = data["SCHADENSNUMMER"]
+    # SCHADENSNUMMER / VERSICHERUNGSSCHEINNUMMER
+    data["SCHADENSNUMMER"] = (
+        _value_after_inline_label(base_lines, "Schadennummer")
+        or _value_after_inline_label(invoice_lines, "Schadennummer")
+        or _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
+        or _value_after_inline_label(invoice_lines, "Versicherungsscheinnummer")
+    )
+
+    data["VERSICHERUNGSSCHEINNUMMER"] = (
+        _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
+        or _value_after_inline_label(invoice_lines, "Versicherungsscheinnummer")
+    )
 
     # DATUM
     data["UNFALL_DATUM"] = _value_after_inline_label(base_lines, "Schadentag")
@@ -234,9 +240,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     # FAHRZEUGTYP
     data["FAHRZEUGTYP"] = _value_after_inline_label(vehicle_lines, "Typ / Untertyp")
 
-    # REPARATURKOSTEN / WERTMINDERUNG / WBW / RESTWERT
+    # REPARATURKOSTEN / TOTALSCHADEN / WBW / RESTWERT / WERTMINDERUNG
     data["REPARATURKOSTEN_NETTO"] = extract_money(
-        p_summary + "\n" + full,
+        p_summary + "\n" + p_calc + "\n" + full,
         [
             r"Reparaturkosten ohne MwSt\.\s+EUR\s+([0-9\.\,]+)",
             r"Reparaturkosten netto\s*:\s*([0-9\.\,]+)",
@@ -244,9 +250,11 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     )
 
     data["REPARATURKOSTEN_BRUTTO"] = extract_money(
-        p_summary + "\n" + full,
+        p_summary + "\n" + p_calc + "\n" + full,
         [
             r"Reparaturkosten mit 19,00\s*%\s*MwSt\.\s+EUR\s+([0-9\.\,]+)",
+            r"Reparaturkosten geschätzt mit 19,00\s*%\s*MwSt\.\s+EUR\s+([0-9\.\,]+)",
+            r"Reparaturkosten geschätzt:\s*\(inkl\.\s*MwSt\.\)\s*EUR\s*([0-9\.\,]+)",
             r"Reparaturkosten brutto\s*:\s*([0-9\.\,]+)",
         ],
     )
@@ -264,6 +272,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         [
             r"Wiederbeschaffungswert \(differenzbesteuert\)\s+EUR\s+([0-9\.\,]+)",
             r"Wiederbeschaffungswert geschätzt:\s*\(differenzbesteuert\)\s*EUR\s*([0-9\.\,]+)",
+            r"Wiederbeschaffungswert:\s*\(differenzbesteuert\)\s*EUR\s*([0-9\.\,]+)",
         ],
     )
 
@@ -290,7 +299,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # Schnur Standardschreiben Reparaturschaden
+    # SCHNUR: meist keine explizite Vorsteuerangabe
     data["VORSTEUERABZUG_RAW"] = ""
 
     # SCHADENHERGANG + SCHADENUMFANG
@@ -305,6 +314,10 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         schadenumfang = _extract_block_between(p_schadenumfang, "Schadenumfang:", "Bemerkung")
         if not schadenumfang:
             schadenumfang = _extract_block_between(p_schadenumfang, "Schadenumfang", "Bemerkung")
+        if not schadenumfang:
+            schadenumfang = _extract_block_between(p_schadenumfang, "Schadenumfang:", "Reparaturkosten")
+        if not schadenumfang:
+            schadenumfang = _extract_block_between(p_schadenumfang, "Schadenumfang", "Reparaturkosten")
 
     data["SCHADENHERGANG"] = clean_text("\n".join(x for x in [hergang, schadenumfang] if x))
 
