@@ -4,7 +4,6 @@ import re
 from typing import Dict, Any, List
 
 from common import (
-    search_first,
     clean_text,
     cleanup_name,
     extract_money,
@@ -33,10 +32,51 @@ def _split_street_plz_ort(value: str) -> tuple[str, str]:
         left, right = value.split(",", 1)
         return clean_text(left), clean_text(right)
 
+    m = re.match(r"^(.*?)(\d{5}\s+.+)$", value)
+    if m:
+        return clean_text(m.group(1)), clean_text(m.group(2))
+
     if re.search(r"\b\d{5}\b", value):
         return "", value
 
     return value, ""
+
+
+def _get_lines(text: str) -> List[str]:
+    return [clean_text(line) for line in str(text).splitlines() if clean_text(line)]
+
+
+def _find_line_index(lines: List[str], label: str) -> int:
+    label_norm = clean_text(label).lower()
+    for i, line in enumerate(lines):
+        if clean_text(line).lower() == label_norm:
+            return i
+    return -1
+
+
+def _value_after_inline_label(lines: List[str], label: str) -> str:
+    label_norm = clean_text(label).lower()
+    for line in lines:
+        line_clean = clean_text(line)
+        line_lower = line_clean.lower()
+        if line_lower.startswith(label_norm):
+            return clean_text(line_clean[len(label):].strip(" :"))
+    return ""
+
+
+def _next_line_after_exact_label(lines: List[str], label: str) -> str:
+    idx = _find_line_index(lines, label)
+    if idx >= 0 and idx + 1 < len(lines):
+        return lines[idx + 1]
+    return ""
+
+
+def _find_page_by_terms(pages: List[str], terms: List[str]) -> str:
+    for page in pages:
+        lower = page.lower()
+        if all(term.lower() in lower for term in terms):
+            return page
+    return ""
 
 
 def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
@@ -71,110 +111,74 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         if not p_wbw and "wiederbeschaffungswert geschätzt" in lower:
             p_wbw = page
 
-    base_page = p_summary or p_invoice or full
+    summary_lines = _get_lines(p_summary)
+    invoice_lines = _get_lines(p_invoice)
+    vehicle_lines = _get_lines(p_vehicle)
 
-    # Gutachtennummer / Aktenzeichen
-    data["AKTENZEICHEN"] = search_first(
-        p_summary + "\n" + p_vehicle + "\n" + full,
-        [
-            r"Gutachten[\s\-]+Nummer.*?\n(5[A-Z0-9]+)",
-            r"Betreff\s+Haftpflichtschaden\s*-\s*(5[A-Z0-9]+)",
-            r"Gutachten\s+(5[A-Z0-9]+)\s+Datum",
-        ],
+    base_lines = summary_lines or invoice_lines or _get_lines(full)
+
+    # Aktenzeichen / Gutachtennummer
+    data["AKTENZEICHEN"] = (
+        _value_after_inline_label(invoice_lines, "Betreff Haftpflichtschaden -")
+        or _next_line_after_exact_label(invoice_lines, "Gutachten - Nummer angeben!")
+        or _value_after_inline_label(vehicle_lines, "Gutachten")
     )
 
     # Mandant
-    raw_name = search_first(
-        base_page,
-        [
-            r"Anspruchsteller\s+(.+?)\n",
-        ],
-    )
+    raw_name = _value_after_inline_label(base_lines, "Anspruchsteller")
     anrede, clean_name = cleanup_name(raw_name)
 
     if not anrede:
-        if re.search(r"\bHerr\b", p_invoice, re.IGNORECASE):
-            anrede = "Herr"
-        elif re.search(r"\bFrau\b", p_invoice, re.IGNORECASE):
-            anrede = "Frau"
+        for line in invoice_lines:
+            if clean_text(line).lower() == "herr":
+                anrede = "Herr"
+                break
+            if clean_text(line).lower() == "frau":
+                anrede = "Frau"
+                break
 
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
 
-    mandant_addr = search_first(
-        base_page,
-        [
-            r"Anspruchsteller\s+.+?\n(.+)",
-        ],
-    )
+    mandant_addr = ""
+    for i, line in enumerate(base_lines):
+        if clean_text(line).lower().startswith("anspruchsteller "):
+            if i + 1 < len(base_lines):
+                mandant_addr = base_lines[i + 1]
+            break
+
     mandant_strasse, mandant_plz_ort = _split_street_plz_ort(mandant_addr)
     data["MANDANT_STRASSE"] = mandant_strasse
     data["MANDANT_PLZ_ORT"] = mandant_plz_ort
 
     # Kennzeichen
-    data["KENNZEICHEN_MANDANT"] = search_first(
-        base_page,
-        [
-            r"Amtliches Kennzeichen\s+(.+?)\n",
-        ],
-    )
+    data["KENNZEICHEN_MANDANT"] = _value_after_inline_label(base_lines, "Amtliches Kennzeichen")
+    data["KENNZEICHEN_GEGNER"] = _value_after_inline_label(base_lines, "Kennzeichen Unfallgegner")
 
-    data["KENNZEICHEN_GEGNER"] = search_first(
-        base_page,
-        [
-            r"Kennzeichen Unfallgegner\s+(.+?)\n",
-        ],
-    )
+    # Versicherung streng zeilenweise
+    data["VERSICHERUNG"] = _value_after_inline_label(base_lines, "Versicherung")
 
-    # Versicherung
-    data["VERSICHERUNG"] = search_first(
-        base_page,
-        [
-            r"Versicherung\s+(.+?)\n",
-        ],
-    )
+    vers_addr = ""
+    for i, line in enumerate(base_lines):
+        if clean_text(line).lower().startswith("versicherung "):
+            if i + 1 < len(base_lines):
+                vers_addr = base_lines[i + 1]
+            break
 
-    vers_addr = search_first(
-        base_page,
-        [
-            r"Versicherung\s+.+?\n(.+)",
-        ],
-    )
     ver_strasse, ver_ort = _split_street_plz_ort(vers_addr)
     data["VER_STRASSE"] = ver_strasse
     data["VER_ORT"] = ver_ort
 
     # Schadensnummer / Versicherungsscheinnummer
-    data["SCHADENSNUMMER"] = search_first(
-        base_page,
-        [
-            r"Versicherungsscheinnummer\s+(.+?)\n",
-        ],
-    )
+    data["SCHADENSNUMMER"] = _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
     data["VERSICHERUNGSSCHEINNUMMER"] = data["SCHADENSNUMMER"]
 
     # Datum
-    data["UNFALL_DATUM"] = search_first(
-        base_page,
-        [
-            r"Schadentag\s+(\d{2}\.\d{2}\.\d{4})",
-        ],
-    )
-
-    data["BESICHTIGUNGSDATUM"] = search_first(
-        base_page,
-        [
-            r"Besichtigungsdatum\s+(\d{2}\.\d{2}\.\d{4})",
-        ],
-    )
+    data["UNFALL_DATUM"] = _value_after_inline_label(base_lines, "Schadentag")
+    data["BESICHTIGUNGSDATUM"] = _value_after_inline_label(base_lines, "Besichtigungsdatum")
 
     # Fahrzeugtyp
-    data["FAHRZEUGTYP"] = search_first(
-        p_vehicle or full,
-        [
-            r"Typ\s*/\s*Untertyp\s+(.+?)\n",
-        ],
-    )
+    data["FAHRZEUGTYP"] = _value_after_inline_label(vehicle_lines, "Typ / Untertyp")
 
     # Reparaturkosten / Wertminderung / WBW / Restwert
     data["REPARATURKOSTEN_NETTO"] = extract_money(
@@ -232,25 +236,21 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # Schnur: Standardschreiben Reparaturschaden -> Reparatur netto
+    # Standardschreiben Schnur: Reparatur netto
     data["VORSTEUERABZUG_RAW"] = ""
 
     # Schadenhergang + Schadenumfang
-    hergang = search_first(
-        p_unfall or full,
-        [
-            r"Unfallhergang:\s+(.+?)\nBlatt",
-            r"Unfallhergang\s+(.+?)\nBlatt",
-        ],
-    )
+    hergang = ""
+    if p_unfall:
+        hergang = _extract_block_between(p_unfall, "Unfallhergang:", "Blatt")
+        if not hergang:
+            hergang = _extract_block_between(p_unfall, "Unfallhergang", "Blatt")
 
-    schadenumfang = search_first(
-        p_schadenumfang or full,
-        [
-            r"Schadenumfang:\s+(.+?)\nBemerkung",
-            r"Schadenumfang\s+(.+?)\nBemerkung",
-        ],
-    )
+    schadenumfang = ""
+    if p_schadenumfang:
+        schadenumfang = _extract_block_between(p_schadenumfang, "Schadenumfang:", "Bemerkung")
+        if not schadenumfang:
+            schadenumfang = _extract_block_between(p_schadenumfang, "Schadenumfang", "Bemerkung")
 
     data["SCHADENHERGANG"] = clean_text("\n".join(x for x in [hergang, schadenumfang] if x))
 
