@@ -119,22 +119,27 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     anrede, clean_name = cleanup_name(raw_name)
 
     if not anrede and clean_name:
-        m = re.search(
-            rf"\b(Herr|Frau)\b\s*\n\s*{re.escape(clean_name)}\b",
-            p_invoice or "",
-            re.IGNORECASE,
-        )
-        if m:
-            anrede = m.group(1).title()
+        for i, line in enumerate(invoice_lines):
+            if clean_text(line).lower() == clean_name.lower():
+                if i - 1 >= 0:
+                    prev_line = clean_text(invoice_lines[i - 1]).lower()
+                    if prev_line == "herr":
+                        anrede = "Herr"
+                    elif prev_line == "frau":
+                        anrede = "Frau"
+                break
 
     if not anrede and clean_name:
-        m = re.search(
-            rf"\b(Herr|Frau)\b\s*\n\s*{re.escape(clean_name)}\b",
-            p_summary or "",
-            re.IGNORECASE,
-        )
-        if m:
-            anrede = m.group(1).title()
+        summary_lines_local = _get_lines(p_summary)
+        for i, line in enumerate(summary_lines_local):
+            if clean_text(line).lower() == clean_name.lower():
+                if i - 1 >= 0:
+                    prev_line = clean_text(summary_lines_local[i - 1]).lower()
+                    if prev_line == "herr":
+                        anrede = "Herr"
+                    elif prev_line == "frau":
+                        anrede = "Frau"
+                break
 
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
@@ -268,11 +273,3 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     data["_PARSER"] = "schnur"
     return data
-
-
-
-
-
-
-
-
