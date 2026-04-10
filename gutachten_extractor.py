@@ -796,11 +796,10 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
         wiederbeschaffungsaufwand = Decimal("0")
         d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
 
-    # 1) Summe für Reparaturschaden
     kostensumme_reparatur = (
         (reparatur or Decimal("0"))
-        + wm
-        - wv
+        + (wm or Decimal("0"))
+        - (wv or Decimal("0"))
         + kp
         + (gutachter or Decimal("0"))
     )
