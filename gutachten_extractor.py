@@ -838,14 +838,14 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["GENDERN"] = gender.get("GENDERN1", "")
     d["GENDERN2"] = gender.get("GENDERN2", "")
 
-    if wv > 0:
+    if (wv or Decimal("0")) > 0:
         d["WERTVERBESSERUNG_NAME"] = "Wertverbesserung"
         d["WERTBESSERUNG_BETRAG"] = _money_to_str(wv)
     else:
         d["WERTVERBESSERUNG_NAME"] = ""
         d["WERTBESSERUNG_BETRAG"] = ""
-
-    if wm > 0:
+    
+    if (wm or Decimal("0")) > 0:
         d["WERTMINDERUNG_NAME"] = "Wertminderung"
         d["WERTMINDERUNG_BETRAG"] = _money_to_str(wm)
     else:
