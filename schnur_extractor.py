@@ -64,10 +64,43 @@ def _next_line_after_exact_label(lines: List[str], label: str) -> str:
     return ""
 
 
-def _extract_briefkopf_anrede(lines: List[str], clean_name: str) -> str:
+def _extract_anrede_from_briefkopf(lines: List[str], clean_name: str) -> str:
     """
-    Sucht im Briefkopf:
+    Sucht Muster:
     Herr
+    Steffen Altwein
+
+    oder:
+    Frau
+    Erika Muster
+    """
+    if not clean_name:
+        return ""
+
+    name_norm = clean_text(clean_name).lower()
+
+    for i, line in enumerate(lines):
+        line_norm = clean_text(line).lower()
+
+        if line_norm == name_norm and i - 1 >= 0:
+            prev_line = clean_text(lines[i - 1]).lower()
+            if prev_line == "herr":
+                return "Herr"
+            if prev_line == "frau":
+                return "Frau"
+
+        if line_norm == f"herr {name_norm}":
+            return "Herr"
+        if line_norm == f"frau {name_norm}":
+            return "Frau"
+
+    return ""
+
+
+def _extract_anrede_from_fahrzeughalter(lines: List[str], clean_name: str) -> str:
+    """
+    Sucht Muster aus Kalkulationsseiten:
+    Fahrzeughalter : Herr
     Steffen Altwein
     """
     if not clean_name:
@@ -76,12 +109,14 @@ def _extract_briefkopf_anrede(lines: List[str], clean_name: str) -> str:
     name_norm = clean_text(clean_name).lower()
 
     for i, line in enumerate(lines):
-        if clean_text(line).lower() == name_norm:
-            if i - 1 >= 0:
-                prev_line = clean_text(lines[i - 1]).lower()
-                if prev_line == "herr":
+        line_norm = clean_text(line).lower()
+
+        if line_norm.startswith("fahrzeughalter"):
+            if "herr" in line_norm:
+                if i + 1 < len(lines) and clean_text(lines[i + 1]).lower() == name_norm:
                     return "Herr"
-                if prev_line == "frau":
+            if "frau" in line_norm:
+                if i + 1 < len(lines) and clean_text(lines[i + 1]).lower() == name_norm:
                     return "Frau"
 
     return ""
@@ -97,6 +132,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     p_unfall = ""
     p_schadenumfang = ""
     p_wbw = ""
+    p_calc = ""
 
     for page in pages:
         lower = page.lower()
@@ -119,12 +155,18 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         if not p_wbw and "wiederbeschaffungswert geschätzt" in lower:
             p_wbw = page
 
+        if not p_calc and "fahrzeughalter" in lower and "reparaturkosten-kalkulation" in lower:
+            p_calc = page
+
     summary_lines = _get_lines(p_summary)
     invoice_lines = _get_lines(p_invoice)
     vehicle_lines = _get_lines(p_vehicle)
-    base_lines = summary_lines or invoice_lines or _get_lines(full)
+    calc_lines = _get_lines(p_calc)
+    all_lines = _get_lines(full)
 
-    # Aktenzeichen / Gutachtennummer
+    base_lines = summary_lines or invoice_lines or all_lines
+
+    # AKTENZEICHEN / Gutachtennummer
     aktenzeichen = (
         _value_after_inline_label(invoice_lines, "Betreff Haftpflichtschaden -")
         or _next_line_after_exact_label(invoice_lines, "Gutachten - Nummer angeben!")
@@ -137,11 +179,17 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         m = re.search(r"\b(5[A-Z0-9]+)\b", p_vehicle or "")
         data["AKTENZEICHEN"] = m.group(1) if m else ""
 
-    # Mandant: Name aus Anspruchsteller, Anrede aus Briefkopf Seite 1
+    # MANDANT
     raw_name = _value_after_inline_label(base_lines, "Anspruchsteller")
     _, clean_name = cleanup_name(raw_name)
 
-    anrede = _extract_briefkopf_anrede(invoice_lines, clean_name)
+    anrede = ""
+    if not anrede:
+        anrede = _extract_anrede_from_briefkopf(invoice_lines, clean_name)
+    if not anrede:
+        anrede = _extract_anrede_from_briefkopf(summary_lines, clean_name)
+    if not anrede:
+        anrede = _extract_anrede_from_fahrzeughalter(calc_lines, clean_name)
 
     mandant_addr = ""
     for i, line in enumerate(base_lines):
@@ -157,11 +205,11 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["MANDANT_STRASSE"] = mandant_strasse
     data["MANDANT_PLZ_ORT"] = mandant_plz_ort
 
-    # Kennzeichen
+    # KENNZEICHEN
     data["KENNZEICHEN_MANDANT"] = _value_after_inline_label(base_lines, "Amtliches Kennzeichen")
     data["KENNZEICHEN_GEGNER"] = _value_after_inline_label(base_lines, "Kennzeichen Unfallgegner")
 
-    # Versicherung
+    # VERSICHERUNG
     data["VERSICHERUNG"] = _value_after_inline_label(base_lines, "Versicherung")
 
     vers_addr = ""
@@ -175,18 +223,18 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["VER_STRASSE"] = ver_strasse
     data["VER_ORT"] = ver_ort
 
-    # Schadensnummer / Versicherungsscheinnummer
+    # SCHADENSNUMMER / Versicherungsscheinnummer
     data["SCHADENSNUMMER"] = _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
     data["VERSICHERUNGSSCHEINNUMMER"] = data["SCHADENSNUMMER"]
 
-    # Datum
+    # DATUM
     data["UNFALL_DATUM"] = _value_after_inline_label(base_lines, "Schadentag")
     data["BESICHTIGUNGSDATUM"] = _value_after_inline_label(base_lines, "Besichtigungsdatum")
 
-    # Fahrzeugtyp
+    # FAHRZEUGTYP
     data["FAHRZEUGTYP"] = _value_after_inline_label(vehicle_lines, "Typ / Untertyp")
 
-    # Reparaturkosten / Wertminderung / WBW / Restwert
+    # REPARATURKOSTEN / WERTMINDERUNG / WBW / RESTWERT
     data["REPARATURKOSTEN_NETTO"] = extract_money(
         p_summary + "\n" + full,
         [
@@ -227,7 +275,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # Gutachterkosten aus Rechnung
+    # GUTACHTERKOSTEN
     data["GUTACHTERKOSTEN_NETTO"] = extract_money(
         p_invoice or full,
         [
@@ -245,7 +293,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     # Schnur Standardschreiben Reparaturschaden
     data["VORSTEUERABZUG_RAW"] = ""
 
-    # Schadenhergang + Schadenumfang
+    # SCHADENHERGANG + SCHADENUMFANG
     hergang = ""
     if p_unfall:
         hergang = _extract_block_between(p_unfall, "Unfallhergang:", "Blatt")
@@ -260,7 +308,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     data["SCHADENHERGANG"] = clean_text("\n".join(x for x in [hergang, schadenumfang] if x))
 
-    # Defaults
+    # DEFAULTS
     data.setdefault("UNFALL_UHRZEIT", "")
     data.setdefault("UNFALL_STRASSE", "")
     data.setdefault("UNFALL_ORT", "")
