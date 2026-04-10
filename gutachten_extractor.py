@@ -427,7 +427,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
             r"Merkantile(?:r)? Wertminderung\s*[: ]*([0-9\., ]+)",
             r"Wertminderung\s*[: ]*([0-9\., ]+)",
             r"Minderwert\s*[: ]*([0-9\., ]+)",
-            r"Merkantiler Minderwert (steuerneutral)\s*[: ]*([0-9\., ]+)"
+            r"Merkantiler Minderwert (steuerneutral)\s*[: ]*([0-9\., ]+)",
             r"Vom Sachverständigen festgelegter Wert\s+([0-9\., ]+)",
         ],
     )
@@ -448,7 +448,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         full,
         [
             r"Wertverbesserung\s*[: ]*([0-9\., ]+)",
-            r"Wertverbesserung (steuerneutral)\s*[: ]*([0-9\., ]+)",
+            r"Wertverbesserung \(steuerneutral\)\s*[-: ]*([0-9\., ]+)",
             r"Wertverbesserung\/Abzug\s*[: ]*([0-9\., ]+)",
             r"Abzug neu für alt\s*[: ]*([0-9\., ]+)",
         ],
@@ -744,7 +744,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     gut_net = _parse_money(str(extracted.get("GUTACHTERKOSTEN_NETTO", "")))
     gut_br = _parse_money(str(extracted.get("GUTACHTERKOSTEN_BRUTTO", "")))
     wm = _parse_money(str(extracted.get("WERTMINDERUNG", ""))) or Decimal("0")
-    wv = _parse_money(str(extracted.get("WERTVERBESSERUNG", ""))) or Decimal("0")
+    wv = _parse_money(str(extracted.get("WERTVERBESSERUNG", "")))
     wbw = _parse_money(str(extracted.get("WBW", "")))
     restwert = _parse_money(str(extracted.get("RESTWERT", "")))
     meldung_raw = _parse_money(str(extracted.get("MELDUNGSKOSTEN_RAW", "")))
