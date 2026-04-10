@@ -50,14 +50,87 @@ def _delete_row(row) -> None:
     tr.getparent().remove(tr)
 
 
+def _is_empty_or_zero(value: Any) -> bool:
+    v = str(value or "").strip()
+    return v in {"", "0,00", "0,00 €", "0.00", "0.00 €", "-", "--"}
+
+
 def _cleanup_empty_table_rows(doc: Document) -> None:
     for table in doc.tables:
         rows = list(table.rows)
 
-        # rückwärts löschen, damit Indizes stabil bleiben
         for row in reversed(rows):
             if _row_is_empty(row):
                 _delete_row(row)
+
+
+def _row_contains_any_marker(row, markers: list[str]) -> bool:
+    row_text = " ".join(_cell_text(cell) for cell in row.cells)
+    return any(marker in row_text for marker in markers)
+
+
+def _cleanup_optional_cost_rows(doc: Document, context: Dict[str, Any]) -> None:
+    rows_to_match: list[list[str]] = []
+
+    if _is_empty_or_zero(context.get("ABMELDEKOSTEN", "")):
+        rows_to_match.append([
+            "ABMELDEKOSTEN",
+            "{{ABMELDEKOSTEN}}",
+            "Abmeldekosten",
+        ])
+
+    if _is_empty_or_zero(context.get("UMMELDEKOSTEN", "")):
+        rows_to_match.append([
+            "UMMELDEKOSTEN",
+            "{{UMMELDEKOSTEN}}",
+            "Ummeldekosten",
+        ])
+
+    if _is_empty_or_zero(context.get("MELDUNGSKOSTEN", "")):
+        rows_to_match.append([
+            "MELDUNGSKOSTEN",
+            "{{MELDUNGSKOSTEN}}",
+            "Meldungskosten",
+            "An- und Abmeldekosten",
+            "An- & Abmeldekosten",
+        ])
+
+    if _is_empty_or_zero(context.get("ZUSATZKOSTEN_BEZEICHNUNG1", "")) or _is_empty_or_zero(context.get("ZUSATZKOSTEN_BETRAG1", "")):
+        rows_to_match.append([
+            "ZUSATZKOSTEN_BEZEICHNUNG1",
+            "ZUSATZKOSTEN_BETRAG1",
+            "{{ZUSATZKOSTEN_BEZEICHNUNG1}}",
+            "{{ZUSATZKOSTEN_BETRAG1}}",
+        ])
+
+    if _is_empty_or_zero(context.get("ZUSATZKOSTEN_BEZEICHNUNG2", "")) or _is_empty_or_zero(context.get("ZUSATZKOSTEN_BETRAG2", "")):
+        rows_to_match.append([
+            "ZUSATZKOSTEN_BEZEICHNUNG2",
+            "ZUSATZKOSTEN_BETRAG2",
+            "{{ZUSATZKOSTEN_BEZEICHNUNG2}}",
+            "{{ZUSATZKOSTEN_BETRAG2}}",
+        ])
+
+    if _is_empty_or_zero(context.get("ZUSATZKOSTEN_BEZEICHNUNG3", "")) or _is_empty_or_zero(context.get("ZUSATZKOSTEN_BETRAG3", "")):
+        rows_to_match.append([
+            "ZUSATZKOSTEN_BEZEICHNUNG3",
+            "ZUSATZKOSTEN_BETRAG3",
+            "{{ZUSATZKOSTEN_BEZEICHNUNG3}}",
+            "{{ZUSATZKOSTEN_BETRAG3}}",
+        ])
+
+    for table in doc.tables:
+        rows = list(table.rows)
+        rows_to_delete = []
+
+        for row in rows:
+            for markers in rows_to_match:
+                if _row_contains_any_marker(row, markers):
+                    rows_to_delete.append(row)
+                    break
+
+        for row in reversed(rows_to_delete):
+            _delete_row(row)
 
 
 def render_word(tpl_name: str, context: Dict[str, Any], out_prefix: str) -> Path:
@@ -75,14 +148,15 @@ def render_word(tpl_name: str, context: Dict[str, Any], out_prefix: str) -> Path
 
     nachname = safe_filename(str(clean_context.get("MANDANT_NACHNAME", "Unbekannt") or "Unbekannt"))
     timestamp = datetime.now().strftime("%d-%m-%Y")
-    out_name = f"{"01-AS_an_VR"}_{timestamp}.docx"
+    out_name = f"01-AS_an_VR_{timestamp}.docx"
     out_path = OUTPUT_DIR / out_name
 
-    # Erst normal rendern und speichern
+    # Erst rendern und speichern
     tpl.save(str(out_path))
 
-    # Danach leere Tabellenzeilen entfernen
+    # Danach Word-Datei erneut öffnen und leere / optionale Tabellenzeilen löschen
     doc = Document(str(out_path))
+    _cleanup_optional_cost_rows(doc, clean_context)
     _cleanup_empty_table_rows(doc)
     doc.save(str(out_path))
 
