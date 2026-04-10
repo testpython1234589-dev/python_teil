@@ -64,6 +64,42 @@ def _next_line_after_exact_label(lines: List[str], label: str) -> str:
     return ""
 
 
+def _infer_anrede_from_pages(pages: List[str], clean_name: str) -> str:
+    """
+    Robust:
+    - suche Zeile 'Herr'/'Frau' direkt vor dem Namen
+    - oder suche 'Herr <Name>' / 'Frau <Name>' in derselben Zeile
+    """
+    if not clean_name:
+        return ""
+
+    name_norm = clean_text(clean_name).lower()
+
+    for page in pages:
+        lines = _get_lines(page)
+
+        for i, line in enumerate(lines):
+            line_norm = clean_text(line).lower()
+
+            # Fall 1: eigene Zeile direkt vor Name
+            if line_norm == name_norm:
+                if i - 1 >= 0:
+                    prev_line = clean_text(lines[i - 1]).lower()
+                    if prev_line == "herr":
+                        return "Herr"
+                    if prev_line == "frau":
+                        return "Frau"
+
+            # Fall 2: gleiche Zeile "Herr Steffen Altwein"
+            if line_norm in {f"herr {name_norm}", f"frau {name_norm}"}:
+                if line_norm.startswith("herr "):
+                    return "Herr"
+                if line_norm.startswith("frau "):
+                    return "Frau"
+
+    return ""
+
+
 def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     full = "\n".join(pages)
     data: Dict[str, Any] = {}
@@ -118,28 +154,8 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     raw_name = _value_after_inline_label(base_lines, "Anspruchsteller")
     anrede, clean_name = cleanup_name(raw_name)
 
-    if not anrede and clean_name:
-        for i, line in enumerate(invoice_lines):
-            if clean_text(line).lower() == clean_name.lower():
-                if i - 1 >= 0:
-                    prev_line = clean_text(invoice_lines[i - 1]).lower()
-                    if prev_line == "herr":
-                        anrede = "Herr"
-                    elif prev_line == "frau":
-                        anrede = "Frau"
-                break
-
-    if not anrede and clean_name:
-        summary_lines_local = _get_lines(p_summary)
-        for i, line in enumerate(summary_lines_local):
-            if clean_text(line).lower() == clean_name.lower():
-                if i - 1 >= 0:
-                    prev_line = clean_text(summary_lines_local[i - 1]).lower()
-                    if prev_line == "herr":
-                        anrede = "Herr"
-                    elif prev_line == "frau":
-                        anrede = "Frau"
-                break
+    if not anrede:
+        anrede = _infer_anrede_from_pages(pages, clean_name)
 
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
