@@ -104,6 +104,18 @@ def _extract_header_anrede(lines: List[str]) -> str:
     return ""
 
 
+def _split_schaden_und_versicherungsschein(raw_value: str) -> tuple[str, str]:
+    raw_value = clean_text(raw_value)
+    if not raw_value:
+        return "", ""
+
+    if " / " in raw_value:
+        left, right = raw_value.split(" / ", 1)
+        return clean_text(left), clean_text(right)
+
+    return raw_value, ""
+
+
 def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     full = "\n".join(pages)
     data: Dict[str, Any] = {}
@@ -205,25 +217,32 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["VER_ORT"] = ver_ort
 
     # SCHADENSNUMMER / VERSICHERUNGSSCHEINNUMMER
-    data["SCHADENSNUMMER"] = (
+    raw_schadennummer = (
         _value_after_inline_label(base_lines, "Schadennummer")
         or _value_after_inline_label(invoice_lines, "Schadennummer")
         or _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
         or _value_after_inline_label(invoice_lines, "Versicherungsscheinnummer")
+        or _value_after_inline_label(base_lines, "Schaden- / Versicherungsscheinnummer")
         or _value_after_inline_label(invoice_lines, "Schaden- / Versicherungsscheinnummer")
     )
 
-    data["VERSICHERUNGSSCHEINNUMMER"] = (
-        _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
-        or _value_after_inline_label(invoice_lines, "Versicherungsscheinnummer")
-    )
+    schaden_nummer, versicherungsschein_nummer = _split_schaden_und_versicherungsschein(raw_schadennummer)
+
+    data["SCHADENSNUMMER"] = schaden_nummer
+    data["VERSICHERUNGSSCHEINNUMMER"] = versicherungsschein_nummer
 
     # DATUM
     data["UNFALL_DATUM"] = _value_after_inline_label(base_lines, "Schadentag")
     data["BESICHTIGUNGSDATUM"] = _value_after_inline_label(base_lines, "Besichtigungsdatum")
 
     # FAHRZEUGTYP
-    data["FAHRZEUGTYP"] = _value_after_inline_label(vehicle_lines, "Typ / Untertyp")
+    typ_untertyp = _value_after_inline_label(vehicle_lines, "Typ / Untertyp")
+    fabrikat = _value_after_inline_label(vehicle_lines, "Fabrikat")
+
+    if fabrikat and typ_untertyp and fabrikat.lower() not in typ_untertyp.lower():
+        data["FAHRZEUGTYP"] = clean_text(f"{fabrikat} {typ_untertyp}")
+    else:
+        data["FAHRZEUGTYP"] = clean_text(typ_untertyp or fabrikat)
 
     # REPARATURKOSTEN / WBW / RESTWERT / WERTMINDERUNG
     data["REPARATURKOSTEN_NETTO"] = extract_money(
@@ -231,6 +250,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         [
             r"Reparaturkosten ohne MwSt\.\s+EUR\s+([0-9\.\,]+)",
             r"Reparaturkosten netto\s*:\s*([0-9\.\,]+)",
+            r"Voraussichtliche Reparaturkosten netto\s*:\s*([0-9\.\,]+)",
         ],
     )
 
@@ -241,6 +261,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
             r"Reparaturkosten geschätzt:\s*\(inkl\.\s*MwSt\.\)\s*EUR\s*([0-9\.\,]+)",
             r"Reparaturkosten mit 19,00\s*%\s*MwSt\.\s+EUR\s+([0-9\.\,]+)",
             r"Reparaturkosten brutto\s*:\s*([0-9\.\,]+)",
+            r"Voraussichtliche Reparaturkosten brutto\s*:\s*([0-9\.\,]+)",
         ],
     )
 
