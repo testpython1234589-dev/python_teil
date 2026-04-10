@@ -210,6 +210,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         or _value_after_inline_label(invoice_lines, "Schadennummer")
         or _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
         or _value_after_inline_label(invoice_lines, "Versicherungsscheinnummer")
+        or _value_after_inline_label(invoice_lines, "Schaden / Versicherungsscheinnummer")
     )
 
     data["VERSICHERUNGSSCHEINNUMMER"] = (
