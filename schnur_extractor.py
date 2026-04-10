@@ -10,6 +10,52 @@ from common import (
 )
 
 
+
+def _extract_anrede_from_briefkopf(lines: List[str], clean_name: str) -> str:
+    if not clean_name:
+        return ""
+
+    name_norm = clean_text(clean_name).lower()
+
+    stop_words = {
+        "bei rückfragen bitte",
+        "gutachten - nummer angeben!",
+        "rechnungsnummer angeben!",
+        "g u t a c h t e n",
+        "r e c h n u n g",
+        "betrifft",
+        "amtliches kennzeichen",
+        "versicherung",
+        "schadennummer",
+        "versicherungsnehmer",
+        "kennzeichen unfallgegner",
+        "anspruchsteller",
+        "schadentag",
+        "besichtigungsdatum",
+        "reparaturfirma",
+    }
+
+    for i, line in enumerate(lines):
+        current = clean_text(line).lower()
+        if current not in {"herr", "frau"}:
+            continue
+
+        parts: List[str] = []
+        for j in range(i + 1, min(i + 5, len(lines))):
+            part = clean_text(lines[j])
+            if not part:
+                continue
+            if part.lower() in stop_words:
+                break
+
+            parts.append(part)
+            combined = clean_text(" ".join(parts)).lower()
+
+            if combined == name_norm:
+                return "Herr" if current == "herr" else "Frau"
+
+    return ""
+
 def _extract_block_between(text: str, start_label: str, next_label: str) -> str:
     if not text:
         return ""
@@ -179,29 +225,26 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     # MANDANT
     raw_name = _value_after_inline_label(base_lines, "Anspruchsteller")
     _, clean_name = cleanup_name(raw_name)
-
-    anrede = ""
-    if not anrede:
-        anrede = _extract_anrede_from_briefkopf(invoice_lines, clean_name)
-    if not anrede:
-        anrede = _extract_anrede_from_briefkopf(summary_lines, clean_name)
-    if not anrede:
-        anrede = _extract_anrede_from_briefkopf(all_lines, clean_name)
-
+    
+    anrede = (
+        _extract_anrede_from_briefkopf(summary_lines, clean_name)
+        or _extract_anrede_from_briefkopf(invoice_lines, clean_name)
+        or _extract_anrede_from_briefkopf(all_lines, clean_name)
+    )
+    
     mandant_addr = ""
     for i, line in enumerate(base_lines):
         if clean_text(line).lower().startswith("anspruchsteller "):
             if i + 1 < len(base_lines):
                 mandant_addr = base_lines[i + 1]
             break
-
+    
     mandant_strasse, mandant_plz_ort = _split_street_plz_ort(mandant_addr)
-
+    
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
     data["MANDANT_STRASSE"] = mandant_strasse
     data["MANDANT_PLZ_ORT"] = mandant_plz_ort
-
     # KENNZEICHEN
     data["KENNZEICHEN_MANDANT"] = _value_after_inline_label(base_lines, "Amtliches Kennzeichen")
     data["KENNZEICHEN_GEGNER"] = _value_after_inline_label(base_lines, "Kennzeichen Unfallgegner")
@@ -227,7 +270,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         or _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
         or _value_after_inline_label(invoice_lines, "Versicherungsscheinnummer")
     )
-
+    
     data["VERSICHERUNGSSCHEINNUMMER"] = (
         _value_after_inline_label(base_lines, "Versicherungsscheinnummer")
         or _value_after_inline_label(invoice_lines, "Versicherungsscheinnummer")
