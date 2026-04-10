@@ -7,7 +7,6 @@ import schnur_extractor as sx
 
 
 def derive_with_existing_logic(extracted: Dict[str, Any]) -> Dict[str, Any]:
-    # wir nutzen erstmal deine bestehende Logik weiter
     return gx.derive_fields(extracted)
 
 
