@@ -46,14 +46,6 @@ def _get_lines(text: str) -> List[str]:
     return [clean_text(line) for line in str(text).splitlines() if clean_text(line)]
 
 
-def _find_line_index(lines: List[str], label: str) -> int:
-    label_norm = clean_text(label).lower()
-    for i, line in enumerate(lines):
-        if clean_text(line).lower() == label_norm:
-            return i
-    return -1
-
-
 def _value_after_inline_label(lines: List[str], label: str) -> str:
     label_norm = clean_text(label).lower()
     for line in lines:
@@ -65,9 +57,10 @@ def _value_after_inline_label(lines: List[str], label: str) -> str:
 
 
 def _next_line_after_exact_label(lines: List[str], label: str) -> str:
-    idx = _find_line_index(lines, label)
-    if idx >= 0 and idx + 1 < len(lines):
-        return lines[idx + 1]
+    label_norm = clean_text(label).lower()
+    for i, line in enumerate(lines):
+        if clean_text(line).lower() == label_norm and i + 1 < len(lines):
+            return lines[i + 1]
     return ""
 
 
@@ -109,26 +102,39 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     base_lines = summary_lines or invoice_lines or _get_lines(full)
 
-    # Gutachtennummer / Aktenzeichen
-    data["AKTENZEICHEN"] = (
+    # Aktenzeichen / Gutachtennummer
+    aktenzeichen = (
         _value_after_inline_label(invoice_lines, "Betreff Haftpflichtschaden -")
         or _next_line_after_exact_label(invoice_lines, "Gutachten - Nummer angeben!")
-        or _value_after_inline_label(vehicle_lines, "Gutachten")
     )
+    if aktenzeichen:
+        m = re.search(r"\b(5[A-Z0-9]+)\b", aktenzeichen)
+        data["AKTENZEICHEN"] = m.group(1) if m else clean_text(aktenzeichen)
+    else:
+        m = re.search(r"\b(5[A-Z0-9]+)\b", p_vehicle or "")
+        data["AKTENZEICHEN"] = m.group(1) if m else ""
 
     # Mandant
     raw_name = _value_after_inline_label(base_lines, "Anspruchsteller")
     anrede, clean_name = cleanup_name(raw_name)
 
-    if not anrede and p_invoice:
-        for i, line in enumerate(invoice_lines):
-            line_clean = clean_text(line)
-            if line_clean.lower() in {"herr", "frau"}:
-                if i + 1 < len(invoice_lines):
-                    next_line = clean_text(invoice_lines[i + 1])
-                    if next_line.lower() == clean_name.lower():
-                        anrede = line_clean.title()
-                        break
+    if not anrede and clean_name:
+        m = re.search(
+            rf"\b(Herr|Frau)\b\s*\n\s*{re.escape(clean_name)}\b",
+            p_invoice or "",
+            re.IGNORECASE,
+        )
+        if m:
+            anrede = m.group(1).title()
+
+    if not anrede and clean_name:
+        m = re.search(
+            rf"\b(Herr|Frau)\b\s*\n\s*{re.escape(clean_name)}\b",
+            p_summary or "",
+            re.IGNORECASE,
+        )
+        if m:
+            anrede = m.group(1).title()
 
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
@@ -229,7 +235,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # Schnur Standardschreiben Reparaturschaden: Reparatur netto
+    # Schnur Standardschreiben Reparaturschaden
     data["VORSTEUERABZUG_RAW"] = ""
 
     # Schadenhergang + Schadenumfang
@@ -262,3 +268,11 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     data["_PARSER"] = "schnur"
     return data
+
+
+
+
+
+
+
+
