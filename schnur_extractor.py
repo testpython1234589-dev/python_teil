@@ -308,7 +308,7 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         if not schadenumfang:
             schadenumfang = _extract_block_between(p_schadenumfang, "Schadenumfang", "Bemerkung")
 
-    data["SCHADENHERGANG"] = clean_text("\n".join(x for x in [hergang, schadenumfang] if x]))
+    data["SCHADENHERGANG"] = clean_text("\n".join(x for x in [hergang, schadenumfang] if x))
 
     # Defaults
     data.setdefault("UNFALL_UHRZEIT", "")
