@@ -185,10 +185,16 @@ def _split_street_place(value: str) -> tuple[str, str]:
 
 def _normalize_yes_no(value: str) -> str:
     v = _clean_text(value).lower()
-    if v in {"ja", "yes", "y", "true", "1"}:
+
+    if not v:
+        return ""
+
+    if v.startswith("ja") or v.startswith("yes") or v.startswith("y") or v.startswith("true") or v.startswith("1"):
         return "Ja"
-    if v in {"nein", "no", "n", "false", "0"}:
+
+    if v.startswith("nein") or v.startswith("no") or v.startswith("n") or v.startswith("false") or v.startswith("0"):
         return "Nein"
+
     return _clean_text(value)
 
 
