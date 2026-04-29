@@ -717,8 +717,7 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
         ]
     )
 
-        ],
-    )
+
 
     if re.search(r"Restwertermittlung\s*\(keine\)", full, re.IGNORECASE):
         data["RESTWERT"] = ""
