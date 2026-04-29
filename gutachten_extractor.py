@@ -505,7 +505,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
 
     data["ABMELDEKOSTEN"] = ""
     data["UMMELDEKOSTEN"] = ""
-    data["MELDUNGSKOSTEN_RAW"] = ""
+    data["MELDUNGSKOSTEN"] = ""
     data["ZUSATZKOSTEN1_NAME"] = ""
     data["ZUSATZKOSTEN1_BETRAG"] = ""
     data["ZUSATZKOSTEN2_NAME"] = ""
