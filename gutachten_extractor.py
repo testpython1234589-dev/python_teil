@@ -98,7 +98,11 @@ def _parse_money(value: str) -> Decimal | None:
     raw = raw.replace("\u202f", " ").replace("\xa0", " ")
     raw = re.sub(r"\s+", "", raw)
 
-    m = re.search(r"-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+(?:\.\d{2})", raw)
+        m = re.search(
+    r"-?\d{1,3}(?:\.\d{3})*(?:,\d{2}|,-)?|-?\d+(?:\.\d{2})?",
+    raw
+    )
+
     if not m:
         return None
 
@@ -437,13 +441,30 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
             r"Vom Sachverständigen festgelegter Wert\s+([0-9\., ]+)",
         ],
     )
-    data["WBW"] = _extract_money(
-        p_summary + "\n" + p_wbw,
+        data["WBW"] = _extract_money(
+        p_summary + "\n" + p_wbw + "\n" + full,
         [
-            r"Wiederbeschaffungswert \(steuerneutral\)\s*([0-9\., ]+)",
-            r"Wiederbeschaffungswert:\s*([0-9\., ]+)",
+    
+            # Hauptbegriffe
+            r"Wiederbeschaffungswert\s*\(differenzbesteuert\)\s*([0-9\., ]+)",
+            r"Wiederbeschaffungswert\s*\(steuerneutral\)\s*([0-9\., ]+)",
+            r"Wiederbeschaffungswert ohne MwSt\.?\s*([0-9\., ]+)",
+            r"Wiederbeschaffungswert inkl\.? MwSt\.?\s*([0-9\., ]+)",
+            r"Wiederbeschaffungswert[: ]+([0-9\., ]+)",
+    
+            # Ersatzbezeichnungen
+            r"Vom Sachverständigen festgelegt\s*([0-9\., ]+)",
+            r"Fahrzeugwert[: ]+([0-9\., ]+)",
+            r"Händler Verkaufswert[: ]+([0-9\.,\- ]+)",
+            r"DAT.*?([0-9\.,\- ]+)\s*EUR",
+            r"Marktwert[: ]+([0-9\., ]+)",
+            r"Wiederherstellungswert[: ]+([0-9\., ]+)",
+    
+            # absolute Fallbacks
+            r"WBW[: ]+([0-9\., ]+)",
         ],
     )
+
 
     if re.search(r"Restwertermittlung\s*\(keine\)", p_rest, re.IGNORECASE):
         data["RESTWERT"] = ""
