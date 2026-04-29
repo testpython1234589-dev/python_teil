@@ -99,9 +99,9 @@ def _parse_money(value: str) -> Decimal | None:
     raw = re.sub(r"\s+", "", raw)
 
         m = re.search(
-    r"-?\d{1,3}(?:\.\d{3})*(?:,\d{2}|,-)?|-?\d+(?:\.\d{2})?",
-    raw
-    )
+            r"-?\d{1,3}(?:\.\d{3})*(?:,\d{2}|,-)?|-?\d+(?:\.\d{2})?",
+            raw
+        )
 
     if not m:
         return None
@@ -441,27 +441,37 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
             r"Vom Sachverständigen festgelegter Wert\s+([0-9\., ]+)",
         ],
     )
-        data["WBW"] = _extract_money(
+    data["WBW"] = _extract_money(
         p_summary + "\n" + p_wbw + "\n" + full,
         [
     
-            # Hauptbegriffe
-            r"Wiederbeschaffungswert\s*\(differenzbesteuert\)\s*([0-9\., ]+)",
-            r"Wiederbeschaffungswert\s*\(steuerneutral\)\s*([0-9\., ]+)",
-            r"Wiederbeschaffungswert ohne MwSt\.?\s*([0-9\., ]+)",
-            r"Wiederbeschaffungswert inkl\.? MwSt\.?\s*([0-9\., ]+)",
-            r"Wiederbeschaffungswert[: ]+([0-9\., ]+)",
-    
-            # Ersatzbezeichnungen
-            r"Vom Sachverständigen festgelegt\s*([0-9\., ]+)",
-            r"Fahrzeugwert[: ]+([0-9\., ]+)",
-            r"Händler Verkaufswert[: ]+([0-9\.,\- ]+)",
-            r"DAT.*?([0-9\.,\- ]+)\s*EUR",
-            r"Marktwert[: ]+([0-9\., ]+)",
-            r"Wiederherstellungswert[: ]+([0-9\., ]+)",
-    
-            # absolute Fallbacks
-            r"WBW[: ]+([0-9\., ]+)",
+        # Standard
+        r"Wiederbeschaffungswert\s*\(differenzbesteuert\)\s*([0-9\., ]+)",
+        r"Wiederbeschaffungswert\s*\(steuerneutral\)\s*([0-9\., ]+)",
+        r"Wiederbeschaffungswert ohne MwSt\.?\s*([0-9\., ]+)",
+        r"Wiederbeschaffungswert inkl\.? MwSt\.?\s*([0-9\., ]+)",
+        r"Wiederbeschaffungswert[: ]*([0-9\., ]+)",
+
+        # Synonyme
+        r"Fahrzeugwert[: ]*([0-9\., ]+)",
+        r"Marktwert[: ]*([0-9\., ]+)",
+        r"Händlereinkaufswert[: ]*([0-9\., ]+)",
+        r"Händlerverkaufswert[: ]*([0-9\., ]+)",
+        r"Wiederherstellungswert[: ]*([0-9\., ]+)",
+        r"Zeitwert[: ]*([0-9\., ]+)",
+
+        # DAT / Audatex / SilverDAT
+        r"DAT.*?([0-9\., ]+)\s*EUR",
+        r"SilverDAT.*?([0-9\., ]+)",
+        r"Audatex.*?([0-9\., ]+)",
+
+        # Totalschaden-Seiten
+        r"Vom Sachverständigen festgelegter Wert\s*([0-9\., ]+)",
+        r"Fahrzeugbewertung\s*([0-9\., ]+)",
+
+        # harte Fallbacks
+        r"WBW[: ]*([0-9\., ]+)",
+        r"WBW-Wert[: ]*([0-9\., ]+)",
         ],
     )
 
@@ -469,7 +479,17 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
     if re.search(r"Restwertermittlung\s*\(keine\)", p_rest, re.IGNORECASE):
         data["RESTWERT"] = ""
     else:
-        data["RESTWERT"] = _extract_money(full, [r"Restwert(?:ermittlung)?[: ]+([0-9\., ]+)"])
+        
+    data["RESTWERT"] = _extract_money(
+        full,
+        [
+          r"Restwert(?:ermittlung)?[: ]*([0-9\., ]+)",
+          r"Gebot\s*1.*?([0-9\., ]+)",
+          r"Höchstgebot.*?([0-9\., ]+)",
+          r"Restwertangebot.*?([0-9\., ]+)"
+        ]
+    )
+                                 
 
     data["WERTVERBESSERUNG"] = _extract_money(
         full,
@@ -668,9 +688,40 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
     data["WBW"] = _extract_money(
         full,
         [
-            r"Wiederbeschaffungswert(?: \(steuerneutral\))?\s*([0-9\., ]+)",
-            r"Wiederbeschaffungswert \(differenzbesteuert\)\s*[-: ]*([0-9\., ]+)",
-            r"Wiederbeschaffungswert:\s*([0-9\., ]+)",
+data["WBW"] = _extract_money(
+    p_summary + "\n" + p_wbw + "\n" + full,
+    [
+
+        # Standard
+        r"Wiederbeschaffungswert\s*\(differenzbesteuert\)\s*([0-9\., ]+)",
+        r"Wiederbeschaffungswert\s*\(steuerneutral\)\s*([0-9\., ]+)",
+        r"Wiederbeschaffungswert ohne MwSt\.?\s*([0-9\., ]+)",
+        r"Wiederbeschaffungswert inkl\.? MwSt\.?\s*([0-9\., ]+)",
+        r"Wiederbeschaffungswert[: ]*([0-9\., ]+)",
+
+        # Synonyme
+        r"Fahrzeugwert[: ]*([0-9\., ]+)",
+        r"Marktwert[: ]*([0-9\., ]+)",
+        r"Händlereinkaufswert[: ]*([0-9\., ]+)",
+        r"Händlerverkaufswert[: ]*([0-9\., ]+)",
+        r"Wiederherstellungswert[: ]*([0-9\., ]+)",
+        r"Zeitwert[: ]*([0-9\., ]+)",
+
+        # DAT / Audatex / SilverDAT
+        r"DAT.*?([0-9\., ]+)\s*EUR",
+        r"SilverDAT.*?([0-9\., ]+)",
+        r"Audatex.*?([0-9\., ]+)",
+
+        # Totalschaden-Seiten
+        r"Vom Sachverständigen festgelegter Wert\s*([0-9\., ]+)",
+        r"Fahrzeugbewertung\s*([0-9\., ]+)",
+
+        # harte Fallbacks
+        r"WBW[: ]*([0-9\., ]+)",
+        r"WBW-Wert[: ]*([0-9\., ]+)",
+    ]
+)
+
         ],
     )
 
