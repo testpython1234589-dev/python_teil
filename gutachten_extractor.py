@@ -686,9 +686,6 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
     data["WBW"] = _extract_money(
         full,
         [
-    data["WBW"] = _extract_money(
-        p_summary + "\n" + p_wbw + "\n" + full,
-        [
     
             # Standard
             r"Wiederbeschaffungswert\s*\(differenzbesteuert\)\s*([0-9\., ]+)",
