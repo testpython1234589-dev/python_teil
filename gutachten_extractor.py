@@ -487,7 +487,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
             or "an- & abmelde" in name_lower
             or "ab- & anmelde" in name_lower
         ):
-            data["MELDUNGSKOSTEN_RAW"] = betrag
+            data["MELDUNGSKOSTEN"] = betrag
             continue
 
         if zusatz_index <= 3:
@@ -648,6 +648,7 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
         full,
         [
             r"Wiederbeschaffungswert(?: \(steuerneutral\))?\s*([0-9\., ]+)",
+            r"Wiederbeschaffungswert \(differenzbesteuert\)\s*[-: ]*([0-9\., ]+)",
             r"Wiederbeschaffungswert:\s*([0-9\., ]+)",
         ],
     )
@@ -676,8 +677,8 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
     sonderkosten_items = _extract_sonderkosten_from_pdf(pdf_source) if pdf_source is not None else []
 
     data["ABMELDEKOSTEN"] = ""
-    data["UMMELDEKOSTEN"] = ""
-    data["MELDUNGSKOSTEN_RAW"] = ""
+    data["MELDUNGSKOSTEN"] = ""
+    data["MELDUNGSKOSTEN"] = ""
     data["ZUSATZKOSTEN1_NAME"] = ""
     data["ZUSATZKOSTEN1_BETRAG"] = ""
     data["ZUSATZKOSTEN2_NAME"] = ""
@@ -698,7 +699,7 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
             or "an- & abmelde" in name_lower
             or "ab- & anmelde" in name_lower
         ):
-            data["MELDUNGSKOSTEN_RAW"] = betrag
+            data["MELDUNGSKOSTEN"] = betrag
             continue
 
         if zusatz_index <= 3:
@@ -753,7 +754,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     wv = _parse_money(str(extracted.get("WERTVERBESSERUNG", "")))
     wbw = _parse_money(str(extracted.get("WBW", "")))
     restwert = _parse_money(str(extracted.get("RESTWERT", "")))
-    meldung_raw = _parse_money(str(extracted.get("MELDUNGSKOSTEN_RAW", "")))
+    meldung_raw = _parse_money(str(extracted.get("MELDUNGSKOSTEN", "")))
     zk1 = _parse_money(str(extracted.get("ZUSATZKOSTEN1_BETRAG", ""))) or Decimal("0")
     zk2 = _parse_money(str(extracted.get("ZUSATZKOSTEN2_BETRAG", ""))) or Decimal("0")
     zk3 = _parse_money(str(extracted.get("ZUSATZKOSTEN3_BETRAG", ""))) or Decimal("0")
@@ -877,7 +878,7 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
         "FIRST_DATUM": "FRIST_DATUM",
         "WIEDERBESCHAFFUNGSWERT": "WBW",
         "WIEDERBESCHAFFUNGSWERTAUFWAND": "WIEDERBESCHAFFUNGSWERTAUFWAND",
-        "MELDUNGSKOSTEN_RAW": "MELDUNGSKOSTEN",
+        "MELDUNGSKOSTEN": "MELDUNGSKOSTEN",
         "ZUSATZKOSTEN_BEZEICHNUNG1": "ZUSATZKOSTEN_BEZEICHNUNG1",
         "ZUSATZKOSTEN_BETRAG1": "ZUSATZKOSTEN_BETRAG1",
         "ZUSATZKOSTEN_BEZEICHNUNG2": "ZUSATZKOSTEN_BEZEICHNUNG2",
