@@ -744,7 +744,6 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
 
     data["ABMELDEKOSTEN"] = ""
     data["MELDUNGSKOSTEN"] = ""
-    data["MELDUNGSKOSTEN"] = ""
     data["ZUSATZKOSTEN1_NAME"] = ""
     data["ZUSATZKOSTEN1_BETRAG"] = ""
     data["ZUSATZKOSTEN2_NAME"] = ""
@@ -948,7 +947,7 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
         "FIRST_DATUM": "FRIST_DATUM",
         "WIEDERBESCHAFFUNGSWERT": "WBW",
         "WIEDERBESCHAFFUNGSWERTAUFWAND": "WIEDERBESCHAFFUNGSWERTAUFWAND",
-        "MELDUNGSKOSTEN_BETRAG": "MELDUNGSKOSTEN",
+        "MELDUNGSKOSTEN": "MELDUNGSKOSTEN",
         "ZUSATZKOSTEN_BEZEICHNUNG1": "ZUSATZKOSTEN_BEZEICHNUNG1",
         "ZUSATZKOSTEN_BETRAG1": "ZUSATZKOSTEN_BETRAG1",
         "ZUSATZKOSTEN_BEZEICHNUNG2": "ZUSATZKOSTEN_BEZEICHNUNG2",
