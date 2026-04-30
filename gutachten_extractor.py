@@ -532,7 +532,6 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         if zusatz_index <= 3:
             data[f"ZUSATZKOSTEN{zusatz_index}_NAME"] = name
             data[f"ZUSATZKOSTEN{zusatz_index}_BETRAG"] = betrag
-            data[f"ZUSATZKOSTEN{zusatz_index}_NAME"] = "Meldungskosten"
             zusatz_index += 1
 
     return data
