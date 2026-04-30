@@ -790,6 +790,8 @@ def extract_all(text: str, pdf_source: str | Path | bytes | None = None) -> Dict
     return data
 
 
+# ... (dein kompletter Code bleibt unverändert bis zur Stelle derive_fields)
+
 def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d: Dict[str, Any] = {}
 
@@ -841,12 +843,11 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["WBW"] = _money_to_str(wbw)
     d["KOSTENPAUSCHALE"] = _money_to_str(kp)
 
-    meldungskosten = meldung_raw or Decimal("0")
+    # ✅ FIXED BLOCK
     if meldung_raw is not None:
-        d["MELDUNGSKOSTEN"] = _money_to_str(meldungskosten)
+        d["MELDUNGSKOSTEN"] = _money_to_str(meldung_raw)
     else:
         d["MELDUNGSKOSTEN"] = ""
-
 
     d["ZUSATZKOSTEN_BEZEICHNUNG1"] = str(extracted.get("ZUSATZKOSTEN1_NAME", "") or "") if zk1 > 0 else ""
     d["ZUSATZKOSTEN_BETRAG1"] = _money_to_str(zk1) if zk1 > 0 else ""
@@ -876,19 +877,17 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     )
     d["KOSTENSUMME_REPARATUR"] = _money_to_str(kostensumme_reparatur)
 
-    # 2) Summe für Totalschaden
     kostensumme_totalschaden = (
         wiederbeschaffungsaufwand
         + kp
         + (gutachter or Decimal("0"))
-        + meldungskosten
+        + (meldung_raw or Decimal("0"))
         + zk1
         + zk2
         + zk3
     )
     d["KOSTENSUMME_TOTALSCHADEN"] = _money_to_str(kostensumme_totalschaden)
 
-    # Standard-Fallback
     d["KOSTENSUMME_X"] = d["KOSTENSUMME_REPARATUR"]
 
     heute = datetime.now()
@@ -928,6 +927,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["SCHADENSNUMMER"] = m.group(0) if m else ""
 
     return d
+
 
 
 def extract_from_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
