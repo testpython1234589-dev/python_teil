@@ -844,7 +844,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     meldungskosten = meldung_raw or Decimal("0")
     if meldung_raw is not None:
         d["MELDUNGSKOSTEN"] = _money_to_str(meldungskosten)
-   else:
+    else:
         d["MELDUNGSKOSTEN"] = ""
 
 
