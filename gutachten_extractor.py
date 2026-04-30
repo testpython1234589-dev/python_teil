@@ -525,6 +525,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
             or "meldegebühr" in name_lower
             or "an- & abmelde" in name_lower
             or "ab- & anmelde" in name_lower
+            or "ab- & anmeldegebühren" in name_lower
         ):
             data["MELDUNGSKOSTEN"] = betrag
             continue
