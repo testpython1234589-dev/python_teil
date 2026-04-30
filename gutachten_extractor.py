@@ -843,10 +843,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["KOSTENPAUSCHALE"] = _money_to_str(kp)
 
     # ✅ FIXED BLOCK
-    if meldung_raw is not None:
-        d["MELDUNGSKOSTEN"] = _money_to_str(meldung_raw)
-    else:
-        d["MELDUNGSKOSTEN"] = ""
+
 
     d["ZUSATZKOSTEN_BEZEICHNUNG1"] = str(extracted.get("ZUSATZKOSTEN1_NAME", "") or "") if zk1 > 0 else ""
     d["ZUSATZKOSTEN_BETRAG1"] = _money_to_str(zk1) if zk1 > 0 else ""
