@@ -82,14 +82,14 @@ def _cleanup_optional_cost_rows(doc: Document, context: Dict[str, Any]) -> None:
     if _is_empty_or_zero(context.get("UMMELDEKOSTEN", "")):
         rows_to_match.append([
             "UMMELDEKOSTEN",
-            "{{MELDUNGSKOSTEN}}",
+           
             "Ummeldekosten",
         ])
 
     if _is_empty_or_zero(context.get("MELDUNGSKOSTEN", "")):
         rows_to_match.append([
             "MELDUNGSKOSTEN",
-            "{{MELDUNGSKOSTEN}}",
+            
             "Meldungskosten",
             "An- und Abmeldekosten",
             "An- & Abmeldekosten",
