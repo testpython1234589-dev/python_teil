@@ -856,6 +856,8 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["ZUSATZKOSTEN_BEZEICHNUNG3"] = str(extracted.get("ZUSATZKOSTEN3_NAME", "") or "") if zk3 > 0 else ""
     d["ZUSATZKOSTEN_BETRAG3"] = _money_to_str(zk3) if zk3 > 0 else ""
 
+    d["MELDUNGSKOSTEN"] = _money_to_str(meldung_raw) if (meldung_raw and meldung_raw > 0) else ""
+    
     if wbw is not None and restwert is not None:
         wiederbeschaffungsaufwand = wbw - restwert
         d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = _money_to_str(wiederbeschaffungsaufwand)
