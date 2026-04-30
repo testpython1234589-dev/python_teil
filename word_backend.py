@@ -72,28 +72,6 @@ def _row_contains_any_marker(row, markers: list[str]) -> bool:
 def _cleanup_optional_cost_rows(doc: Document, context: Dict[str, Any]) -> None:
     rows_to_match: list[list[str]] = []
 
-    if _is_empty_or_zero(context.get("ABMELDEKOSTEN", "")):
-        rows_to_match.append([
-            "ABMELDEKOSTEN",
-            
-            "Abmeldekosten",
-        ])
-
-    if _is_empty_or_zero(context.get("UMMELDEKOSTEN", "")):
-        rows_to_match.append([
-            "UMMELDEKOSTEN",
-           
-            "Ummeldekosten",
-        ])
-
-    if _is_empty_or_zero(context.get("MELDUNGSKOSTEN", "")):
-        rows_to_match.append([
-            "MELDUNGSKOSTEN",
-            
-            "Meldungskosten",
-            "An- und Abmeldekosten",
-            "An- & Abmeldekosten",
-        ])
 
     if _is_empty_or_zero(context.get("ZUSATZKOSTEN_BEZEICHNUNG1", "")) or _is_empty_or_zero(context.get("ZUSATZKOSTEN_BETRAG1", "")):
         rows_to_match.append([
