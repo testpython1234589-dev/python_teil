@@ -822,7 +822,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     wv = _parse_money(str(extracted.get("WERTVERBESSERUNG", "")))
     wbw = _parse_money(str(extracted.get("WBW", "")))
     restwert = _parse_money(str(extracted.get("RESTWERT", "")))
-    meldung_raw = _parse_money(str(extracted.get("MELDUNGSKOSTEN")))
+    meldung_raw = _parse_money(str(extracted.get("MELDUNGSKOSTEN", "")))
     zk1 = _parse_money(str(extracted.get("ZUSATZKOSTEN1_BETRAG", ""))) or Decimal("0")
     zk2 = _parse_money(str(extracted.get("ZUSATZKOSTEN2_BETRAG", ""))) or Decimal("0")
     zk3 = _parse_money(str(extracted.get("ZUSATZKOSTEN3_BETRAG", ""))) or Decimal("0")
@@ -836,6 +836,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
         gutachter = gut_br if gut_br is not None else gut_net
 
     d["REPARATURKOSTEN"] = _money_to_str(reparatur)
+    d["REPARATURKOSTEN"] = _money_to_str(meldungskosten)
     d["REPARATURSCHADEN"] = d["REPARATURKOSTEN"]
     d["GUTACHTERKOSTEN"] = _money_to_str(gutachter)
     d["WERTMINDERUNG"] = _money_to_str(wm)
