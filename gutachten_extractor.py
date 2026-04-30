@@ -987,7 +987,7 @@ def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any
         if value in (None, "") and key in defaults:
             value = defaults[key]
 
-        ctx[key] = "" if value is None else str(value)
+       
 
     if "SCHADENSNUMMER" not in ctx and extracted.get("SCHADENSNUMMER"):
         ctx["SCHADENSNUMMER"] = str(extracted.get("SCHADENSNUMMER"))
