@@ -842,7 +842,11 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d["KOSTENPAUSCHALE"] = _money_to_str(kp)
 
     meldungskosten = meldung_raw or Decimal("0")
-    d["MELDUNGSKOSTEN"] = _money_to_str(meldungskosten) if meldungskosten > 0 else ""
+    if meldung_raw is not None:
+        d["MELDUNGSKOSTEN"] = _money_to_str(meldungskosten)
+   else:
+        d["MELDUNGSKOSTEN"] = ""
+
 
     d["ZUSATZKOSTEN_BEZEICHNUNG1"] = str(extracted.get("ZUSATZKOSTEN1_NAME", "") or "") if zk1 > 0 else ""
     d["ZUSATZKOSTEN_BETRAG1"] = _money_to_str(zk1) if zk1 > 0 else ""
