@@ -504,7 +504,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
     sonderkosten_items = _extract_sonderkosten_from_pdf(pdf_source) if pdf_source is not None else []
 
     data["ABMELDEKOSTEN"] = ""
-    data["UMMELDEKOSTEN"] = ""
+    data["MELDUNGSKOSTEN"] = ""
   
     data["ZUSATZKOSTEN1_NAME"] = ""
     data["ZUSATZKOSTEN1_BETRAG"] = ""
@@ -743,7 +743,7 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
     sonderkosten_items = _extract_sonderkosten_from_pdf(pdf_source) if pdf_source is not None else []
 
     data["ABMELDEKOSTEN"] = ""
-
+    data["MELDUNGSKOSTEN"] = ""
     data["ZUSATZKOSTEN1_NAME"] = ""
     data["ZUSATZKOSTEN1_BETRAG"] = ""
     data["ZUSATZKOSTEN2_NAME"] = ""
