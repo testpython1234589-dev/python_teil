@@ -485,6 +485,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
                 r"Gebot\s*1.*?([0-9\., ]+)",
                 r"Höchstgebot.*?([0-9\., ]+)",
                 r"Restwertangebot.*?([0-9\., ]+)"
+                r"\bRestwert\b[: ]*([0-9\., ]+)"
             ]
         )
                           
