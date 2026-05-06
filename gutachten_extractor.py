@@ -1,4 +1,74 @@
-from __future__ import annotations
+  /mount/src/python_teil/gutachten_extractor.py:479                            
+
+      if re.search(r"Restwertermittlung\s*\(keine\)", p_rest, re.IGNORECASE):   
+
+                                                                                
+
+────────────────────────────────────────────────────────────────────────────────
+
+SyntaxError: invalid syntax
+
+────────────────────── Traceback (most recent call last) ───────────────────────
+
+  /home/adminuser/venv/lib/python3.14/site-packages/streamlit/runtime/scriptru  
+
+  nner/exec_code.py:129 in exec_func_with_error_handling                        
+
+                                                                                
+
+  /home/adminuser/venv/lib/python3.14/site-packages/streamlit/runtime/scriptru  
+
+  nner/script_runner.py:689 in code_to_exec                                     
+
+                                                                                
+
+  /mount/src/python_teil/streamlit_app.py:7 in <module>                         
+
+                                                                                
+
+      4 from typing import Dict, Any, List                                      
+
+      5                                                                         
+
+      6 import word_backend as wb                                               
+
+  ❱   7 import gutachten_service as gs                                          
+
+      8                                                                         
+
+      9                                                                         
+
+     10 TEMPLATES = {                                                           
+
+                                                                                
+
+  /mount/src/python_teil/gutachten_service.py:5 in <module>                     
+
+                                                                                
+
+     2                                                                          
+
+     3 from typing import Dict, Any                                             
+
+     4                                                                          
+
+  ❱  5 import gutachten_extractor as gx                                         
+
+     6 import schnur_extractor as sx                                            
+
+     7                                                                          
+
+     8                                                                          
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+
+   /mount/src/python_teil/gutachten_extractor.py:479                            
+
+      if re.search(r"Restwertermittlung\s*\(keine\)", p_rest, re.IGNORECASE):   
+
+                                                                                 Code: from __future__ import annotations
 
 import re
 from io import BytesIO
@@ -476,10 +546,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         r"WBW-Wert[: ]*([0-9\., ]+)",
         ],
     )
-    if re.search(r"Restwertermittlung\s*\(keine\)", p_rest, re.IGNORECASE):
-        data["RESTWERT"] = "" 
-    else: 
-        data["RESTWERT"] = _extract_money( full, [ r"Restwert(?:ermittlung)?[: ]*([0-9\., ]+)", r"Gebot\s*1.*?([0-9\., ]+)", r"Höchstgebot.*?([0-9\., ]+)", r"Restwertangebot.*?([0-9\., ]+)" ] )           
+    if re.search(r"Restwertermittlung\s*\(keine\)", p_rest, re.IGNORECASE): data["RESTWERT"] = "" else: data["RESTWERT"] = _extract_money( full, [ r"Restwert(?:ermittlung)?[: ]*([0-9\., ]+)", r"Gebot\s*1.*?([0-9\., ]+)", r"Höchstgebot.*?([0-9\., ]+)", r"Restwertangebot.*?([0-9\., ]+)" ] )           
     
         data["WERTVERBESSERUNG"] = _extract_money(
             full,
