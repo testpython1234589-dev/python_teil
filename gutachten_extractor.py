@@ -44,42 +44,34 @@ def _pdf_to_pages_pymupdf(pdf_source: str | Path | bytes) -> List[str]:
 def _extract_restwert_robust(text: str) -> str:
     text = _clean_text(text)
 
-    # 🔹 1. Versuche expliziten Restwert
-    matches = re.findall(r"Rest\s*wert[^0-9]{0,20}([0-9\.,\s]{4,})", text, re.IGNORECASE)
+    patterns = [
+        r"Rest\s*wert[^0-9]{0,20}([0-9\.,\s]{4,})",
+        r"Restwert inkl\.? MwSt\.?\s*([0-9\.,\s]{4,})",
+        r"Restwert brutto\s*([0-9\.,\s]{4,})",
+        r"Restwert netto\s*([0-9\.,\s]{4,})",
+        r"Höchst\s*gebot[^0-9]{0,20}([0-9\.,\s]{4,})",
+        r"Gebot[^0-9]{0,20}([0-9\.,\s]{4,})",
+    ]
 
     values = []
-    for m in matches:
-        val = _parse_money(m)
-        if val:
-            values.append(val)
 
-    if values:
-        return _money_to_str(max(values))
-
-    # 🔹 2. fallback: Höchstgebot
-    matches = re.findall(r"Höchst\s*gebot[^0-9]{0,20}([0-9\.,\s]{4,})", text, re.IGNORECASE)
-
-    values = []
-    for m in matches:
-        val = _parse_money(m)
-        if val:
-            values.append(val)
-
-    if values:
-        return _money_to_str(max(values))
-
-    # 🔹 3. fallback: alle Beträge im Restwert-Block
-    if "Restwert" in text or "Gebot" in text:
-        matches = re.findall(r"([0-9]{1,3}(?:[\.\s][0-9]{3})*(?:,\d{2}))", text)
-
-        values = []
+    for pat in patterns:
+        matches = re.findall(pat, text, re.IGNORECASE)
         for m in matches:
             val = _parse_money(m)
             if val:
                 values.append(val)
 
-        if values:
-            return _money_to_str(max(values))
+    # 🔹 Fallback: alle Beträge im Kontext
+    if not values and ("Restwert" in text or "Gebot" in text):
+        matches = re.findall(r"([0-9]{1,3}(?:[\.\s][0-9]{3})*(?:,\d{2}))", text)
+        for m in matches:
+            val = _parse_money(m)
+            if val:
+                values.append(val)
+
+    if values:
+        return _money_to_str(max(values))
 
     return ""
 
@@ -517,7 +509,8 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         ],
     )
 
-             
+    rest_text = p_rest or p_summary or full
+    data["RESTWERT"] = _extract_restwert_robust(rest_text)             
 
     data["WERTVERBESSERUNG"] = _extract_money(
         full,
