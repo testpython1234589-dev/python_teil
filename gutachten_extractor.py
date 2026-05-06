@@ -476,7 +476,10 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         r"WBW-Wert[: ]*([0-9\., ]+)",
         ],
     )
-    if re.search(r"Restwertermittlung\s*\(keine\)", p_rest, re.IGNORECASE): data["RESTWERT"] = "" else: data["RESTWERT"] = _extract_money( full, [ r"Restwert(?:ermittlung)?[: ]*([0-9\., ]+)", r"Gebot\s*1.*?([0-9\., ]+)", r"Höchstgebot.*?([0-9\., ]+)", r"Restwertangebot.*?([0-9\., ]+)" ] )           
+    if re.search(r"Restwertermittlung\s*\(keine\)", p_rest, re.IGNORECASE):
+        data["RESTWERT"] = "" 
+    else: 
+        data["RESTWERT"] = _extract_money( full, [ r"Restwert(?:ermittlung)?[: ]*([0-9\., ]+)", r"Gebot\s*1.*?([0-9\., ]+)", r"Höchstgebot.*?([0-9\., ]+)", r"Restwertangebot.*?([0-9\., ]+)" ] )           
     
         data["WERTVERBESSERUNG"] = _extract_money(
             full,
