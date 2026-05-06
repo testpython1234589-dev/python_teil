@@ -836,7 +836,7 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
         gutachter = gut_br if gut_br is not None else gut_net
 
     d["REPARATURKOSTEN"] = _money_to_str(reparatur)
-    d["REPARATURKOSTEN"] = _money_to_str(meldung_raw)
+    
     d["REPARATURSCHADEN"] = d["REPARATURKOSTEN"]
     d["GUTACHTERKOSTEN"] = _money_to_str(gutachter)
     d["WERTMINDERUNG"] = _money_to_str(wm)
