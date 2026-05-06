@@ -517,6 +517,9 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         ],
     )
 
+        # 🔥 RESTWERT HINZUFÜGEN (FEHLT AKTUELL)
+    rest_text = p_rest or p_summary or full
+    data["RESTWERT"] = _extract_restwert_robust(rest_text)
              
 
     data["WERTVERBESSERUNG"] = _extract_money(
