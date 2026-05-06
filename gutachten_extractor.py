@@ -41,6 +41,48 @@ def _pdf_to_pages_pymupdf(pdf_source: str | Path | bytes) -> List[str]:
         pages.append(_clean_text(page.get_text("text", sort=True)))
     return pages
 
+def _extract_restwert_robust(text: str) -> str:
+    text = _clean_text(text)
+
+    # 🔹 1. Versuche expliziten Restwert
+    matches = re.findall(r"Rest\s*wert[^0-9]{0,20}([0-9\.,\s]{4,})", text, re.IGNORECASE)
+
+    values = []
+    for m in matches:
+        val = _parse_money(m)
+        if val:
+            values.append(val)
+
+    if values:
+        return _money_to_str(max(values))
+
+    # 🔹 2. fallback: Höchstgebot
+    matches = re.findall(r"Höchst\s*gebot[^0-9]{0,20}([0-9\.,\s]{4,})", text, re.IGNORECASE)
+
+    values = []
+    for m in matches:
+        val = _parse_money(m)
+        if val:
+            values.append(val)
+
+    if values:
+        return _money_to_str(max(values))
+
+    # 🔹 3. fallback: alle Beträge im Restwert-Block
+    if "Restwert" in text or "Gebot" in text:
+        matches = re.findall(r"([0-9]{1,3}(?:[\.\s][0-9]{3})*(?:,\d{2}))", text)
+
+        values = []
+        for m in matches:
+            val = _parse_money(m)
+            if val:
+                values.append(val)
+
+        if values:
+            return _money_to_str(max(values))
+
+    return ""
+
 
 def _pdf_to_pages_pypdf(pdf_source: str | Path | bytes) -> List[str]:
     if isinstance(pdf_source, (str, Path)):
@@ -475,20 +517,7 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         ],
     )
 
-    if re.search(r"Restwertermittlung\s*\(keine\)", p_rest, re.IGNORECASE):
-        data["RESTWERT"] = ""
-    else:
-        data["RESTWERT"] = _extract_money(
-            full,
-            [
-                r"Restwert(?:ermittlung)?[: ]*([0-9\., ]+)",
-                r"Gebot\s*1.*?([0-9\., ]+)",
-                r"Höchstgebot.*?([0-9\., ]+)",
-                r"Restwertangebot.*?([0-9\., ]+)"
-                r"\bRestwert\b[: ]*([0-9\., ]+)"
-            ]
-        )
-                          
+             
 
     data["WERTVERBESSERUNG"] = _extract_money(
         full,
@@ -721,10 +750,8 @@ def _parse_generic(pages: List[str], pdf_source: str | Path | bytes | None = Non
 
 
 
-    if re.search(r"Restwertermittlung\s*\(keine\)", full, re.IGNORECASE):
-        data["RESTWERT"] = ""
-    else:
-        data["RESTWERT"] = _extract_money(full, [r"Restwert(?:ermittlung)?[: ]+([0-9\., ]+)"])
+    rest_text = p_rest or p_summary or full
+    data["RESTWERT"] = _extract_restwert_robust(rest_text)
 
     data["WERTVERBESSERUNG"] = _extract_money(full, [r"Wertverbesserung[: ]+([0-9\., ]+)"])
     data["GUTACHTERKOSTEN_NETTO"] = _extract_money(
