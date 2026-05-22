@@ -9,6 +9,11 @@ from common import (
     extract_money,
 )
 
+
+def _get_lines(text: str) -> List[str]:
+    return [clean_text(line) for line in str(text).splitlines() if clean_text(line)]
+
+
 def _extract_header_anrede_first_page(page_text: str) -> str:
     """
     Erkennt Herr/Frau aus dem oberen linken Bereich der ersten Seite.
@@ -59,8 +64,7 @@ def _split_street_plz_ort(value: str) -> tuple[str, str]:
     return value, ""
 
 
-def _get_lines(text: str) -> List[str]:
-    return [clean_text(line) for line in str(text).splitlines() if clean_text(line)]
+
 
 
 def _value_after_inline_label(lines: List[str], label: str) -> str:
