@@ -9,6 +9,23 @@ from common import (
     extract_money,
 )
 
+def _extract_header_anrede_first_page(page_text: str) -> str:
+    """
+    Erkennt Herr/Frau aus dem oberen linken Bereich der ersten Seite.
+    """
+    if not page_text:
+        return ""
+
+    lines = _get_lines(page_text)
+
+    # nur obere 15 Zeilen (typischer Briefkopfbereich)
+    for line in lines[:15]:
+        txt = clean_text(line).strip().lower()
+
+        if txt in {"herr", "frau"}:
+            return "Herr" if txt == "herr" else "Frau"
+
+    return ""
 
 def _extract_block_between(text: str, start_label: str, next_label: str) -> str:
     if not text:
