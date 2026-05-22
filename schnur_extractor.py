@@ -15,20 +15,19 @@ def _get_lines(text: str) -> List[str]:
 
 
 def _extract_header_anrede_first_page(page_text: str) -> str:
-    """
-    Erkennt Herr/Frau aus dem oberen linken Bereich der ersten Seite.
-    """
     if not page_text:
         return ""
 
     lines = _get_lines(page_text)
 
-    # nur obere 15 Zeilen (typischer Briefkopfbereich)
-    for line in lines[:15]:
+    for line in lines[:20]:
         txt = clean_text(line).strip().lower()
 
-        if txt in {"herr", "frau"}:
-            return "Herr" if txt == "herr" else "Frau"
+        # typische Fälle
+        if txt.startswith("herr"):
+            return "Herr"
+        if txt.startswith("frau"):
+            return "Frau"
 
     return ""
 
