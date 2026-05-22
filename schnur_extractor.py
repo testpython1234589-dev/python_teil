@@ -10,6 +10,23 @@ from common import (
 )
 
 
+def extract_wbw_from_lines(lines):
+    for i, line in enumerate(lines):
+        txt = clean_text(line).lower()
+
+        if "wiederbeschaffungswert" in txt:
+            # suche nachfolgende Zeilen
+            for j in range(i+1, min(i+10, len(lines))):
+                val = clean_text(lines[j]).lower()
+
+                if val in {"", "eur", "geschätzt"}:
+                    continue
+
+                if re.match(r"^\d{1,3}(?:\.\d{3})*,\d{2}$", val):
+                    return val
+
+    return ""
+
 def _get_lines(text: str) -> List[str]:
     return [clean_text(line) for line in str(text).splitlines() if clean_text(line)]
 
@@ -296,16 +313,9 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    data["WBW"] = extract_money(
-        p_summary + "\n" + p_wbw + "\n" + full,
-        [
-            r"Wiederbeschaffungswert \(differenzbesteuert\)\s+EUR\s+([0-9\.\,]+)",
-            r"Wiederbeschaffungswert geschätzt:\s*\(differenzbesteuert\)\s*EUR\s+([0-9\.\,]+)",
-            r"Wiederbeschaffungswert:\s*\(differenzbesteuert\)\s*EUR\s+([0-9\.\,]+)",
-            r"Wiederbeschaffungswert mit 19,00\s*%\s*MwSt\.\s*\(regelbesteuert\)\s*([0-9\.\,]+)",
-            r"Wiederbeschaffungswert[\s\S]*?([0-9]{1,3}(?:\.\d{3})*,\d{2})"
-        ],
-    )
+      summary_lines = _get_lines(p_summary)
+    data["WBW"] = extract_wbw_from_lines(summary_lines)
+
 
     data["RESTWERT"] = extract_money(
         p_summary + "\n" + p_wbw + "\n" + full,
