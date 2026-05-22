@@ -134,6 +134,7 @@ def _split_schaden_und_versicherungsschein(raw_value: str) -> tuple[str, str]:
 
 
 def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
+    first_page = pages[0] if pages else ""
     full = "\n".join(pages)
     data: Dict[str, Any] = {}
 
@@ -196,9 +197,11 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     _, clean_name = cleanup_name(raw_name)
 
     anrede = (
-        _extract_header_anrede(summary_lines)
+        _extract_header_anrede_first_page(first_page)
+        or _extract_header_anrede(summary_lines)
         or _extract_header_anrede(invoice_lines)
         or _extract_header_anrede(all_lines)
+
     )
 
     mandant_addr = ""
