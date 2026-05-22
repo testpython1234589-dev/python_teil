@@ -383,4 +383,4 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data.setdefault("ZUSATZKOSTEN3_BETRAG", "")
 
     data["_PARSER"] = "schnur"
-    return data// richtig??
+    return data
