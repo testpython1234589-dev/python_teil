@@ -313,9 +313,16 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-      summary_lines = _get_lines(p_summary)
-    data["WBW"] = extract_wbw_from_lines(summary_lines)
-
+    data["WBW"] = extract_money(
+        p_summary + "\n" + p_wbw + "\n" + full,
+        [
+            r"Wiederbeschaffungswert \(differenzbesteuert\)\s+EUR\s+([0-9\.\,]+)",
+            r"Wiederbeschaffungswert geschätzt:\s*\(differenzbesteuert\)\s*EUR\s+([0-9\.\,]+)",
+            r"Wiederbeschaffungswert:\s*\(differenzbesteuert\)\s*EUR\s+([0-9\.\,]+)",
+            r"Wiederbeschaffungswert mit 19,00\s*%\s*MwSt\.\s*\(regelbesteuert\)\s*([0-9\.\,]+)",
+            r"Wiederbeschaffungswert[\s\S]*?([0-9]{1,3}(?:\.\d{3})*,\d{2})"
+        ],
+    )
 
     data["RESTWERT"] = extract_money(
         p_summary + "\n" + p_wbw + "\n" + full,
@@ -376,4 +383,4 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data.setdefault("ZUSATZKOSTEN3_BETRAG", "")
 
     data["_PARSER"] = "schnur"
-    return data
+    return data// richtig??
