@@ -10,7 +10,22 @@ from common import (
 )
 
 
+def extract_wbw_from_lines(lines):
+    for i, line in enumerate(lines):
+        txt = clean_text(line).lower()
 
+        if "wiederbeschaffungswert" in txt:
+            # suche nachfolgende Zeilen
+            for j in range(i+1, min(i+10, len(lines))):
+                val = clean_text(lines[j]).lower()
+
+                if val in {"", "eur", "geschätzt"}:
+                    continue
+
+                if re.match(r"^\d{1,3}(?:\.\d{3})*,\d{2}$", val):
+                    return val
+
+    return ""
 
 def _get_lines(text: str) -> List[str]:
     return [clean_text(line) for line in str(text).splitlines() if clean_text(line)]
