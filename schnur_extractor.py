@@ -300,10 +300,10 @@ def parse_schnur(pages: List[str], pdf_source=None) -> Dict[str, Any]:
         p_summary + "\n" + p_wbw + "\n" + full,
         [
             r"Wiederbeschaffungswert \(differenzbesteuert\)\s+EUR\s+([0-9\.\,]+)",
-            r"Wiederbeschaffungswert geschätzt:\s*\(differenzbesteuert\)\s*EUR\s*([0-9\.\,]+)",
-            r"Wiederbeschaffungswert:\s*\(differenzbesteuert\)\s*EUR\s*([0-9\.\,]+)",
+            r"Wiederbeschaffungswert geschätzt:\s*\(differenzbesteuert\)\s*EUR\s+([0-9\.\,]+)",
+            r"Wiederbeschaffungswert:\s*\(differenzbesteuert\)\s*EUR\s+([0-9\.\,]+)",
             r"Wiederbeschaffungswert mit 19,00\s*%\s*MwSt\.\s*\(regelbesteuert\)\s*([0-9\.\,]+)",
-            r"Wiederbeschaffungswert.*?(?:geschätzt\s*)?([0-9\.\,]+)"
+            r"Wiederbeschaffungswert[\s\S]*?([0-9]{1,3}(?:\.\d{3})*,\d{2})"
         ],
     )
 
