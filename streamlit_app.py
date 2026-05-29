@@ -16,6 +16,10 @@ TEMPLATES = {
         "Standard Schreiben": ("vorlage_schreiben-1-schnur.docx", "Standard_schreiben_schnur"),
         "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1-schnur.docx", "schreibentotalschaden_schnur"),
     },
+    "stotko": {
+        "Standard Schreiben": ("vorlage_schreiben-1-stotko.docx", "Standard_schreiben_stotko"),
+        "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1-stotko.docx", "schreibentotalschaden_stotko"),
+    },
 }
 
 GUTACHTER = {
