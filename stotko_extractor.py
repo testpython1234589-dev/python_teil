@@ -99,31 +99,46 @@ def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["AKTENZEICHEN"] = _value_after_inline_label(all_lines, "Gutachtennummer") \
         or _value_after_inline_label(all_lines, "Aktenzeichen")
 
-# MANDANT
-    raw_name = _value_after_inline_label(base_lines, "Anspruchsteller")
+    # -------------------------
+    # MANDANT (STOTKO angepasst wie Schnur)
+    # -------------------------
+    
+    raw_name = _value_after_inline_label(all_lines, "Anspruchsteller")
     _, clean_name = cleanup_name(raw_name)
-
-    anrede = (
-        _extract_header_anrede_first_page(first_page)
-        or _extract_header_anrede(summary_lines)
-        or _extract_header_anrede(invoice_lines)
-        or _extract_header_anrede(all_lines)
-
-    )
-
-    mandant_addr = ""
-    for i, line in enumerate(base_lines):
-        if clean_text(line).lower().startswith("anspruchsteller "):
-            if i + 1 < len(base_lines):
-                mandant_addr = base_lines[i + 1]
+    
+    # ANREDE (einfach + stabil)
+    anrede = _extract_header_anrede(summary_lines) or _extract_header_anrede(all_lines)
+    
+    # ADRESSE (wichtig: +2 / +3 Logik)
+    mandant_strasse = ""
+    mandant_plz_ort = ""
+    
+    for i, line in enumerate(all_lines):
+        if clean_text(line).lower().startswith("anspruchsteller"):
+            if i + 2 < len(all_lines):
+                mandant_strasse = all_lines[i + 2]
+    
+            if i + 3 < len(all_lines):
+                mandant_plz_ort = all_lines[i + 3]
+    
             break
-
-    mandant_strasse, mandant_plz_ort = _split_street_plz_ort(mandant_addr)
-
+    
+    # SETZEN
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
-    data["MANDANT_STRASSE"] = mandant_strasse
-    data["MANDANT_PLZ_ORT"] = mandant_plz_ort
+    data["MANDANT_STRASSE"] = clean_text(mandant_strasse)
+    data["MANDANT_PLZ_ORT"] = clean_text(mandant_plz_ort)
+    
+    # GENDER
+    if anrede == "Herr":
+        data["MANDANT_GENDER1"] = "Herr"
+        data["MANDANT_GENDER2"] = "m"
+    elif anrede == "Frau":
+        data["MANDANT_GENDER1"] = "Frau"
+        data["MANDANT_GENDER2"] = "w"
+    else:
+        data["MANDANT_GENDER1"] = ""
+        data["MANDANT_GENDER2"] = ""
 
 
     # -------------------------
