@@ -589,13 +589,13 @@ def parse_stotko(
     # =====================================================
     # SCHADENSNUMMER
     # =====================================================
-# =====================================================
-# SCHADENSNUMMER
-# =====================================================
-
+    # =====================================================
+    # SCHADENSNUMMER
+    # =====================================================
+    
     data["SCHADENSNUMMER"] = ""
     
-    for line in lines:
+    for i, line in enumerate(lines):
     
         low = line.lower()
     
@@ -605,8 +605,13 @@ def parse_stotko(
         ):
             continue
     
+        # =================================================
+        # FALL 1:
+        # Nummer direkt in derselben Zeile
+        # =================================================
+    
         m = re.search(
-            r"(?:Schadennummer|Versicherungsnummer)\s*[:\-]?\s*(.+)",
+            r"(?:Schadennummer|Versicherungsnummer)\s*[:\-]?\s*([A-Z0-9\-/ ]{4,})",
             line,
             re.I,
         )
@@ -619,13 +624,46 @@ def parse_stotko(
     
             nummer = re.sub(
                 r"\s+",
-                " ",
+                "",
                 nummer,
-            ).strip()
+            )
     
             data["SCHADENSNUMMER"] = nummer
     
             break
+    
+        # =================================================
+        # FALL 2:
+        # Nummer steht in der NÄCHSTEN Zeile
+        # =================================================
+    
+        if i + 1 < len(lines):
+    
+            next_line = clean_text(
+                lines[i + 1]
+            )
+    
+            m2 = re.search(
+                r"([A-Z0-9\-/ ]{4,})",
+                next_line,
+                re.I,
+            )
+    
+            if m2:
+    
+                nummer = clean_text(
+                    m2.group(1)
+                )
+    
+                nummer = re.sub(
+                    r"\s+",
+                    "",
+                    nummer,
+                )
+    
+                data["SCHADENSNUMMER"] = nummer
+    
+                break
 
     # =====================================================
     # DATEN
