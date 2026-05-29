@@ -4,6 +4,7 @@ from typing import Dict, Any
 
 import gutachten_extractor as gx
 import schnur_extractor as sx
+import stotko_extractor as stx
 
 
 def derive_with_existing_logic(extracted: Dict[str, Any]) -> Dict[str, Any]:
