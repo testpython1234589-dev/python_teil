@@ -10,7 +10,7 @@ from common import (
 )
 
 # -------------------------
-# Helper (übernommen aus schnur)
+# HELPERS
 # -------------------------
 
 def _get_lines(text: str) -> List[str]:
@@ -27,60 +27,92 @@ def _value_after_inline_label(lines: List[str], label: str) -> str:
     return ""
 
 
-def _next_line_after_exact_label(lines: List[str], label: str) -> str:
-    label_norm = clean_text(label).lower()
-
-    for i, line in enumerate(lines):
-        if clean_text(line).lower() == label_norm and i + 1 < len(lines):
-            return clean_text(lines[i + 1])
-    return ""
-
 def _extract_header_anrede(lines: List[str]) -> str:
-    """
-    Schnur-Briefkopf, z. B.:
-    Herr
-    Hans-Peter Kliem
-    Mobile Schlosserei
-    ...
-    Bei Rückfragen bitte
-    """
-    if not lines:
-        return ""
-
-    stop_markers = {
-        "bei rückfragen bitte",
-        "gutachten - nummer angeben!",
-        "rechnungsnummer angeben!",
-        "g u t a c h t e n",
-        "r e c h n u n g",
-    }
-
     for line in lines[:15]:
-        txt = clean_text(line).strip().lower()
-
-        if txt in stop_markers:
-            break
-
+        txt = clean_text(line).lower()
         if txt == "herr":
             return "Herr"
         if txt == "frau":
             return "Frau"
-
     return ""
 
-def _extract_block_between(text: str, start_label: str, next_label: str) -> str:
-    if not text:
-        return ""
-    m = re.search(
-        rf"{re.escape(start_label)}\s+(.+?)\s+{re.escape(next_label)}",
-        text,
-        re.IGNORECASE | re.DOTALL,
-    )
-    return clean_text(m.group(1)) if m else ""
+
+def _split_street_plz_ort(line: str):
+    line = clean_text(line)
+
+    # PLZ erkennen
+    m = re.search(r"\b\d{5}\b.*", line)
+    if m:
+        plz_ort = m.group(0)
+        strasse = line.replace(plz_ort, "").strip(", ")
+        return strasse, plz_ort
+
+    return line, ""
+
+
+def _extract_mandant_block(lines: List[str]):
+    """
+    Robuste Erkennung für Stotko:
+    Funktioniert für:
+    - Anspruchsteller: Max Mustermann
+    - Anspruchsteller:
+      Max Mustermann
+      Straße
+      PLZ Ort
+    - Mit oder ohne Anrede
+    """
+
+    name = ""
+    strasse = ""
+    plz_ort = ""
+
+    for i, line in enumerate(lines):
+        l = clean_text(line).lower()
+
+        if "anspruchsteller" in l:
+
+            # ---- NAME ----
+            raw_name = _value_after_inline_label([line], "Anspruchsteller")
+
+            if raw_name:
+                name = raw_name
+                offset = 1
+            else:
+                # Name steht in nächster Zeile
+                if i + 1 < len(lines):
+                    name = lines[i + 1]
+                offset = 2
+
+            # ---- ADRESSE (mehrere Varianten testen) ----
+            candidates = []
+
+            for j in range(i + offset, min(i + offset + 4, len(lines))):
+                candidates.append(lines[j])
+
+            # Suche PLZ zuerst (stabilster Marker)
+            for c in candidates:
+                if re.search(r"\b\d{5}\b", c):
+                    plz_ort = c
+                    break
+
+            # Straße = Zeile davor
+            if plz_ort:
+                idx = candidates.index(plz_ort)
+                if idx > 0:
+                    strasse = candidates[idx - 1]
+            else:
+                # Fallback (alte Logik)
+                if len(candidates) >= 2:
+                    strasse = candidates[0]
+                    plz_ort = candidates[1]
+
+            break
+
+    return name, strasse, plz_ort
 
 
 # -------------------------
-# STOTKO PARSER
+# PARSER
 # -------------------------
 
 def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
@@ -89,107 +121,76 @@ def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
 
     data: Dict[str, Any] = {}
 
-    summary_lines = _get_lines(first_page)
     all_lines = _get_lines(full)
 
     # -------------------------
-    # BASIS: bekannte Felder aus schnur übernehmen
+    # AKTENZEICHEN
     # -------------------------
-
-    data["AKTENZEICHEN"] = _value_after_inline_label(all_lines, "Gutachtennummer") \
+    data["AKTENZEICHEN"] = (
+        _value_after_inline_label(all_lines, "Gutachtennummer")
         or _value_after_inline_label(all_lines, "Aktenzeichen")
+    )
 
     # -------------------------
-    # MANDANT (STOTKO angepasst wie Schnur)
+    # MANDANT (FIX)
     # -------------------------
-    
-    raw_name = _value_after_inline_label(all_lines, "Anspruchsteller")
+    raw_name, mandant_strasse, mandant_plz_ort = _extract_mandant_block(all_lines)
+
     _, clean_name = cleanup_name(raw_name)
-    
-    # ANREDE (einfach + stabil)
-    anrede = _extract_header_anrede(summary_lines) or _extract_header_anrede(all_lines)
-    
-    # ADRESSE (wichtig: +2 / +3 Logik)
-    mandant_strasse = ""
-    mandant_plz_ort = ""
-    
-    for i, line in enumerate(all_lines):
-        if clean_text(line).lower().startswith("anspruchsteller"):
-            if i + 2 < len(all_lines):
-                mandant_strasse = all_lines[i + 2]
-    
-            if i + 3 < len(all_lines):
-                mandant_plz_ort = all_lines[i + 3]
-    
-            break
-    
-    # SETZEN
+
+    anrede = _extract_header_anrede(all_lines)
+
     data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
-    data["MANDANT_STRASSE"] = clean_text(mandant_strasse)
-    data["MANDANT_PLZ_ORT"] = clean_text(mandant_plz_ort)
-    
-    # GENDER
-    if anrede == "Herr":
+    data["MANDANT_STRASSE"] = mandant_strasse
+    data["MANDANT_PLZ_ORT"] = mandant_plz_ort
+
+    # OPTIONAL: Gender wie bei schnur
+    if anrede.lower() == "herr":
         data["MANDANT_GENDER1"] = "Herr"
-        data["MANDANT_GENDER2"] = "m"
-    elif anrede == "Frau":
-        data["MANDANT_GENDER1"] = "Frau"
-        data["MANDANT_GENDER2"] = "w"
+        data["MANDANT_GENDER2"] = ""
+    elif anrede.lower() == "frau":
+        data["MANDANT_GENDER1"] = ""
+        data["MANDANT_GENDER2"] = "Frau"
     else:
         data["MANDANT_GENDER1"] = ""
         data["MANDANT_GENDER2"] = ""
 
-
     # -------------------------
     # KENNZEICHEN
     # -------------------------
-
     data["KENNZEICHEN_MANDANT"] = _value_after_inline_label(all_lines, "Amtliches Kennzeichen")
 
-    # STOTKO: Gegner oft anders benannt
     data["KENNZEICHEN_GEGNER"] = (
         _value_after_inline_label(all_lines, "Kennzeichen Unfallgegner")
         or _value_after_inline_label(all_lines, "Kennzeichen Gegner")
     )
 
     # -------------------------
-    # VERSICHERUNG + ADRESSE (STOTKO SPEZIAL)
+    # VERSICHERUNG
     # -------------------------
-
     data["VERSICHERUNG"] = _value_after_inline_label(all_lines, "Versicherung")
 
-    vers_block = ""
     for i, line in enumerate(all_lines):
-        if clean_text(line).lower().startswith("versicherung"):
+        if "versicherung" in line.lower():
             if i + 2 < len(all_lines):
-                # STOTKO: Adresse oft 2-zeilig
-                vers_block = all_lines[i + 1] + ", " + all_lines[i + 2]
+                data["VER_STRASSE"] = all_lines[i + 1]
+                data["VER_ORT"] = all_lines[i + 2]
             break
-
-    if vers_block:
-        if "," in vers_block:
-            left, right = vers_block.split(",", 1)
-            data["VER_STRASSE"] = clean_text(left)
-            data["VER_ORT"] = clean_text(right)
-        else:
-            data["VER_STRASSE"] = vers_block
-            data["VER_ORT"] = ""
 
     # -------------------------
     # SCHADENSNUMMER
     # -------------------------
-
-    data["SCHADENSNUMMER"] = _value_after_inline_label(all_lines, "Schadennummer") \
+    data["SCHADENSNUMMER"] = (
+        _value_after_inline_label(all_lines, "Schadennummer")
         or _value_after_inline_label(all_lines, "Schaden-Nr.")
+    )
 
     # -------------------------
     # DATEN
     # -------------------------
-
     data["BESICHTIGUNGSDATUM"] = _value_after_inline_label(all_lines, "Besichtigungsdatum")
 
-    # STOTKO: Unfalldatum oft anders
     data["UNFALL_DATUM"] = (
         _value_after_inline_label(all_lines, "Ereignis vom")
         or _value_after_inline_label(all_lines, "Unfalltag")
@@ -198,42 +199,21 @@ def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     # -------------------------
     # FAHRZEUG
     # -------------------------
-
     typ = _value_after_inline_label(all_lines, "Typ / Untertyp")
     fabrikat = _value_after_inline_label(all_lines, "Fabrikat")
 
     data["FAHRZEUGTYP"] = clean_text(f"{fabrikat} {typ}".strip())
 
     # -------------------------
-    # WERTE (STOTKO MAPPING DIFFERENZ)
+    # WERTE
     # -------------------------
-
-    data["WERTMINDERUNG"] = extract_money(
-        full,
-        [
-            r"Wertminderung.*?([0-9\.\,]+)",
-            r"Wertminderung\s*\(MwSt[- ]neutral\)\s*EUR\s*([0-9\.\,]+)",
-        ],
-    )
-
-    data["WBW"] = extract_money(
-        full,
-        [
-            r"Wiederbeschaffungswert.*?([0-9\.\,]+)",
-        ],
-    )
-
-    data["RESTWERT"] = extract_money(
-        full,
-        [
-            r"Restwert.*?([0-9\.\,]+)",
-        ],
-    )
+    data["WERTMINDERUNG"] = extract_money(full, [r"Wertminderung.*?([0-9\.\,]+)"])
+    data["WBW"] = extract_money(full, [r"Wiederbeschaffungswert.*?([0-9\.\,]+)"])
+    data["RESTWERT"] = extract_money(full, [r"Restwert.*?([0-9\.\,]+)"])
 
     # -------------------------
-    # REPARATURKOSTEN (STOTKO)
+    # REPARATUR
     # -------------------------
-
     data["REPARATURKOSTEN_NETTO"] = extract_money(
         full,
         [
@@ -243,9 +223,8 @@ def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     )
 
     # -------------------------
-    # GUTACHTERKOSTEN (1. SEITE SPEZIAL)
+    # GUTACHTERKOSTEN
     # -------------------------
-
     data["GUTACHTERKOSTEN_BRUTTO"] = extract_money(
         first_page,
         [
@@ -255,19 +234,8 @@ def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     )
 
     # -------------------------
-    # SCHADENHERGANG
+    # FIX FELDER
     # -------------------------
-
-    data["SCHADENHERGANG"] = _extract_block_between(
-        full,
-        "Schadenumfang:",
-        "Bemerkung",
-    )
-
-    # -------------------------
-    # FIX: geforderte Felder
-    # -------------------------
-
     data.setdefault("WERTVERBESSERUNG", "")
     data.setdefault("UNFALL_UHRZEIT", "")
     data.setdefault("UNFALL_STRASSE", "")
