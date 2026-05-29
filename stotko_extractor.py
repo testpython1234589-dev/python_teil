@@ -25,6 +25,7 @@ def _normalize_text(text: str) -> str:
 
     return text
 
+
 def _to_float(value):
 
     if not value:
@@ -53,24 +54,14 @@ def _to_euro(value):
         .replace("X", ".")
     )
 
+
 def _get_lines(text: str) -> List[str]:
+
     return [
         clean_text(x)
         for x in str(text).splitlines()
         if clean_text(x)
     ]
-
-
-def _find_line(lines: List[str], pattern: str):
-
-    rx = re.compile(pattern, re.I)
-
-    for i, line in enumerate(lines):
-
-        if rx.search(line):
-            return i, line
-
-    return -1, ""
 
 
 def _money(
@@ -81,7 +72,10 @@ def _money(
     return extract_money(text, patterns)
 
 
-def _extract_date(text: str, label: str) -> str:
+def _extract_date(
+    text: str,
+    label: str,
+) -> str:
 
     m = re.search(
         rf"{re.escape(label)}.*?(\d{{2}}\.\d{{2}}\.\d{{4}})",
@@ -113,9 +107,6 @@ def _split_address(line: str):
 
     line = clean_text(line)
 
-    # Muster:
-    # Amselweg 58, 06110 Halle
-
     if "," in line:
 
         left, right = line.split(",", 1)
@@ -124,9 +115,6 @@ def _split_address(line: str):
             clean_text(left),
             clean_text(right),
         )
-
-    # fallback:
-    # Amselweg 58 06110 Halle
 
     m = re.search(
         r"(.+?)\s+(\d{5}\s+.+)",
@@ -187,35 +175,40 @@ def _extract_mandant(lines):
 
             possible_street = clean_text(lines[i + 2])
 
-            if re.search(r"\d", possible_street):
+            # Straße + PLZ in gleicher Zeile
+            m = re.search(
+                r"(.+?\d+[a-zA-Z]?)\s+(\d{5}\s+.+)",
+                possible_street,
+            )
+
+            if m:
+
+                result["strasse"] = clean_text(
+                    m.group(1)
+                )
+
+                result["plz_ort"] = clean_text(
+                    m.group(2)
+                )
+
+            elif re.search(r"\d", possible_street):
+
                 result["strasse"] = possible_street
 
         # -----------------------------------
         # PLZ ORT
         # -----------------------------------
 
-        if i + 3 < len(lines):
+        if (
+            not result["plz_ort"]
+            and i + 3 < len(lines)
+        ):
 
             possible_city = clean_text(lines[i + 3])
 
             if re.search(r"\b\d{5}\b", possible_city):
 
                 result["plz_ort"] = possible_city
-
-        # -----------------------------------
-        # FALL:
-        # Straße + PLZ in EINER Zeile
-        # -----------------------------------
-
-        if (
-            not result["plz_ort"]
-            and "," in result["strasse"]
-        ):
-
-            left, right = result["strasse"].split(",", 1)
-
-            result["strasse"] = clean_text(left)
-            result["plz_ort"] = clean_text(right)
 
         break
 
@@ -241,36 +234,34 @@ def _extract_versicherung(lines):
         if "versicherung" not in low:
             continue
 
-        # NICHT:
-        # Versicherungsschein
         if "versicherungsschein" in low:
             continue
 
         # -----------------------------------
-        # AXA Versicherung
+        # Versicherung
         # -----------------------------------
 
         m = re.search(
-            r"\b([A-ZÄÖÜ][A-Za-zÄÖÜäöüß\s\-]+Versicherung)\b",
+            r"\b((?:[A-ZÄÖÜ0-9]+[\s\-]*){1,4}Versicherung)\b",
             line,
             re.I,
         )
 
         if m:
-        
+
             value = clean_text(m.group(1))
-        
+
             value = re.sub(
                 r"^Versicherung\s+",
                 "",
                 value,
                 flags=re.I,
             )
-        
+
             result["versicherung"] = value
 
         # -----------------------------------
-        # adresse suchen
+        # Adresse
         # -----------------------------------
 
         for j in range(i, min(i + 5, len(lines))):
@@ -315,12 +306,10 @@ def _extract_kennzeichen(lines):
         if not kz:
             continue
 
-        # AST = Anspruchsteller
         if "(ast)" in low:
 
             result["mandant"] = kz
 
-        # VN = Gegner
         elif "(vn)" in low:
 
             result["gegner"] = kz
@@ -334,9 +323,7 @@ def _extract_kennzeichen(lines):
 
 def _extract_aktenzeichen(lines):
 
-    # AP12364D
-
-    for i, line in enumerate(lines[:40]):
+    for line in lines[:40]:
 
         m = re.search(
             r"\b(AP[0-9A-Z]+)\b",
@@ -379,7 +366,6 @@ def _extract_fahrzeugtyp(lines):
         if m2:
             typ = clean_text(m2.group(1))
 
-    # doppeltes FR entfernen
     typ = re.sub(
         r"\b(FR)\s+\1\b",
         r"\1",
@@ -390,8 +376,6 @@ def _extract_fahrzeugtyp(lines):
     return clean_text(
         f"{fabrikat} {typ}".strip()
     )
-
-
 
 
 # =========================================================
@@ -405,12 +389,9 @@ def parse_stotko(
 
     full = "\n".join(pages)
     full = _normalize_text(full)
-    
+
     first_page = pages[0] if pages else ""
     first_page = _normalize_text(first_page)
-
-    full = "\n".join(pages)
-    first_page = pages[0] if pages else ""
 
     lines = _get_lines(full)
 
@@ -444,13 +425,12 @@ def parse_stotko(
 
     data["MANDANT_VOLLNAME"] = clean_name
 
-    # Vorname / Nachname
-
     split_name = clean_name.split()
 
     if len(split_name) >= 2:
 
         data["MANDANT_VORNAME"] = split_name[0]
+
         data["MANDANT_NACHNAME"] = " ".join(
             split_name[1:]
         )
@@ -460,7 +440,9 @@ def parse_stotko(
         data["MANDANT_VORNAME"] = ""
         data["MANDANT_NACHNAME"] = ""
 
-    # Gender
+    # =====================================================
+    # GENDER
+    # =====================================================
 
     if mandant["anrede"].lower() == "frau":
 
@@ -523,9 +505,9 @@ def parse_stotko(
         full,
         re.I,
     )
-    
+
     if not m:
-    
+
         m = re.search(
             r"Versicherungsnummer.*?([0-9\/\-\s]+)",
             full,
@@ -533,10 +515,13 @@ def parse_stotko(
         )
 
     if m:
+
         data["SCHADENSNUMMER"] = clean_text(
             m.group(1)
         )
+
     else:
+
         data["SCHADENSNUMMER"] = ""
 
     # =====================================================
@@ -630,21 +615,32 @@ def parse_stotko(
         data["GUTACHTERKOSTEN_BRUTTO"]
     )
 
+    # =====================================================
+    # SUMMEN
+    # =====================================================
 
-    rep = _to_float(data["REPARATURKOSTEN_BRUTTO"])
-    gut = _to_float(data["GUTACHTERKOSTEN_BRUTTO"])
-    wm = _to_float(data["WERTMINDERUNG"])
-    
+    rep = _to_float(
+        data["REPARATURKOSTEN_BRUTTO"]
+    )
+
+    gut = _to_float(
+        data["GUTACHTERKOSTEN_BRUTTO"]
+    )
+
+    wm = _to_float(
+        data["WERTMINDERUNG"]
+    )
+
     data["KOSTENSUMME_REPARATUR"] = _to_euro(
         rep + gut + wm + 25
     )
-    
+
     wbw = _to_float(data["WBW"])
-    
+
     data["KOSTENSUMME_TOTALSCHADEN"] = _to_euro(
         wbw + gut + 25
     )
-    
+
     data["KOSTENSUMME_X"] = (
         data["KOSTENSUMME_REPARATUR"]
     )
@@ -663,11 +659,71 @@ def parse_stotko(
     data.setdefault("WERTBESSERUNG_BETRAG", "")
 
     data["WERTMINDERUNG_NAME"] = "Wertminderung"
+
     data["WERTMINDERUNG_BETRAG"] = (
         data["WERTMINDERUNG"]
     )
 
-    data.setdefault("KOSTENPAUSCHALE", "25,00 €")
+    data.setdefault(
+        "KOSTENPAUSCHALE",
+        "25,00 €",
+    )
+
+    # =====================================================
+    # ZUSATZFELDER
+    # =====================================================
+
+    data.setdefault("VORSTEUERABZUG_RAW", "")
+    data.setdefault("VORSTEUERBERECHTIGUNG", "")
+
+    data.setdefault(
+        "ZUSATZKOSTEN_BEZEICHNUNG1",
+        "",
+    )
+
+    data.setdefault(
+        "ZUSATZKOSTEN_BETRAG1",
+        "",
+    )
+
+    data.setdefault(
+        "ZUSATZKOSTEN_BEZEICHNUNG2",
+        "",
+    )
+
+    data.setdefault(
+        "ZUSATZKOSTEN_BETRAG2",
+        "",
+    )
+
+    data.setdefault(
+        "ZUSATZKOSTEN_BEZEICHNUNG3",
+        "",
+    )
+
+    data.setdefault(
+        "ZUSATZKOSTEN_BETRAG3",
+        "",
+    )
+
+    data.setdefault("MELDUNGSKOSTEN", "")
+
+    # =====================================================
+    # WBW AUFWAND
+    # =====================================================
+
+    wbw = _to_float(data["WBW"])
+    restwert = _to_float(data["RESTWERT"])
+
+    if wbw > 0:
+
+        data["WIEDERBESCHAFFUNGSWERTAUFWAND"] = (
+            _to_euro(wbw - restwert)
+        )
+
+    else:
+
+        data["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
 
     # =====================================================
     # PARSER
