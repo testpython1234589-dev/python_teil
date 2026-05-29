@@ -35,6 +35,38 @@ def _next_line_after_exact_label(lines: List[str], label: str) -> str:
             return clean_text(lines[i + 1])
     return ""
 
+def _extract_header_anrede(lines: List[str]) -> str:
+    """
+    Schnur-Briefkopf, z. B.:
+    Herr
+    Hans-Peter Kliem
+    Mobile Schlosserei
+    ...
+    Bei Rückfragen bitte
+    """
+    if not lines:
+        return ""
+
+    stop_markers = {
+        "bei rückfragen bitte",
+        "gutachten - nummer angeben!",
+        "rechnungsnummer angeben!",
+        "g u t a c h t e n",
+        "r e c h n u n g",
+    }
+
+    for line in lines[:15]:
+        txt = clean_text(line).strip().lower()
+
+        if txt in stop_markers:
+            break
+
+        if txt == "herr":
+            return "Herr"
+        if txt == "frau":
+            return "Frau"
+
+    return ""
 
 def _extract_block_between(text: str, start_label: str, next_label: str) -> str:
     if not text:
@@ -67,14 +99,32 @@ def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["AKTENZEICHEN"] = _value_after_inline_label(all_lines, "Gutachtennummer") \
         or _value_after_inline_label(all_lines, "Aktenzeichen")
 
-    # -------------------------
-    # MANDANT (wie schnur, optional fallback)
-    # -------------------------
-
-    raw_name = _value_after_inline_label(all_lines, "Anspruchsteller")
+# MANDANT
+    raw_name = _value_after_inline_label(base_lines, "Anspruchsteller")
     _, clean_name = cleanup_name(raw_name)
 
+    anrede = (
+        _extract_header_anrede_first_page(first_page)
+        or _extract_header_anrede(summary_lines)
+        or _extract_header_anrede(invoice_lines)
+        or _extract_header_anrede(all_lines)
+
+    )
+
+    mandant_addr = ""
+    for i, line in enumerate(base_lines):
+        if clean_text(line).lower().startswith("anspruchsteller "):
+            if i + 1 < len(base_lines):
+                mandant_addr = base_lines[i + 1]
+            break
+
+    mandant_strasse, mandant_plz_ort = _split_street_plz_ort(mandant_addr)
+
+    data["MANDANT_ANREDE"] = anrede
     data["MANDANT_NAME"] = clean_name
+    data["MANDANT_STRASSE"] = mandant_strasse
+    data["MANDANT_PLZ_ORT"] = mandant_plz_ort
+
 
     # -------------------------
     # KENNZEICHEN
