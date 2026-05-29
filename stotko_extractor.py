@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 
 from common import (
     clean_text,
@@ -13,41 +13,32 @@ from common import (
 # HELPERS
 # =========================================================
 
-STOP_WORDS = [
-    "fahrzeug",
-    "fabrikat",
-    "typ",
-    "versicherung",
-    "schadennummer",
-    "besichtigungsdatum",
-    "kennzeichen",
-    "reparaturkosten",
-    "gutachten",
-]
-
-
 def _get_lines(text: str) -> List[str]:
     return [
-        clean_text(line)
-        for line in str(text).splitlines()
-        if clean_text(line)
+        clean_text(x)
+        for x in str(text).splitlines()
+        if clean_text(x)
     ]
 
 
-def _search_value(lines: List[str], patterns: List[str]) -> str:
+def _find_line(lines: List[str], pattern: str):
 
-    for line in lines:
+    rx = re.compile(pattern, re.I)
 
-        line_clean = clean_text(line)
+    for i, line in enumerate(lines):
 
-        for pattern in patterns:
+        if rx.search(line):
+            return i, line
 
-            m = re.search(pattern, line_clean, re.I)
+    return -1, ""
 
-            if m:
-                return clean_text(m.group(1))
 
-    return ""
+def _money(
+    text: str,
+    patterns: List[str],
+) -> str:
+
+    return extract_money(text, patterns)
 
 
 def _extract_date(text: str, label: str) -> str:
@@ -64,11 +55,11 @@ def _extract_date(text: str, label: str) -> str:
     return ""
 
 
-def _extract_license_from_line(line: str) -> str:
+def _extract_license(text: str) -> str:
 
     m = re.search(
         r"\b([A-ZÄÖÜ]{1,4}\-[A-Z]{1,3}\s?\d{1,4})\b",
-        line,
+        text,
         re.I,
     )
 
@@ -78,164 +69,296 @@ def _extract_license_from_line(line: str) -> str:
     return ""
 
 
-def _split_address(line: str) -> Tuple[str, str]:
+def _split_address(line: str):
 
     line = clean_text(line)
+
+    # Muster:
+    # Amselweg 58, 06110 Halle
 
     if "," in line:
 
         left, right = line.split(",", 1)
 
-        return clean_text(left), clean_text(right)
+        return (
+            clean_text(left),
+            clean_text(right),
+        )
 
-    m = re.search(r"(\d{5}\s+.+)", line)
+    # fallback:
+    # Amselweg 58 06110 Halle
+
+    m = re.search(
+        r"(.+?)\s+(\d{5}\s+.+)",
+        line,
+    )
 
     if m:
 
-        plz_ort = clean_text(m.group(1))
-        strasse = clean_text(line.replace(plz_ort, ""))
-
-        return strasse, plz_ort
+        return (
+            clean_text(m.group(1)),
+            clean_text(m.group(2)),
+        )
 
     return line, ""
-
-
-def _looks_like_name(text: str) -> bool:
-
-    t = text.lower()
-
-    if any(x in t for x in STOP_WORDS):
-        return False
-
-    if re.search(r"\d{5}", text):
-        return False
-
-    if len(text.split()) > 5:
-        return False
-
-    return True
 
 
 # =========================================================
 # MANDANT
 # =========================================================
 
-def _extract_mandant_block(lines: List[str]):
+def _extract_mandant(lines):
 
     result = {
+        "anrede": "",
         "name": "",
         "strasse": "",
         "plz_ort": "",
     }
 
-    for i, line in enumerate(lines):
+    # -----------------------------------------------------
+    # BLOCK AUF SEITE 1
+    #
+    # Frau
+    # Mandy Schramm
+    # Amselweg 58
+    # 06110 Halle
+    # -----------------------------------------------------
 
-        line_clean = clean_text(line)
+    for i, line in enumerate(lines[:40]):
 
-        # -----------------------------------------
-        # FALL:
-        # Anspruchsteller Mandy Schramm
-        # -----------------------------------------
+        low = line.lower()
 
-        m = re.search(
-            r"Anspruchsteller\s+(.+)",
-            line_clean,
-            re.I,
-        )
-
-        if not m:
+        if low not in ["herr", "frau"]:
             continue
 
-        possible_name = clean_text(m.group(1))
+        result["anrede"] = line
 
-        if not _looks_like_name(possible_name):
-            continue
-
-        result["name"] = possible_name
-
-        # -----------------------------------------
-        # nächste Zeile = adresse
-        # -----------------------------------------
-
+        # name
         if i + 1 < len(lines):
 
-            adr = clean_text(lines[i + 1])
+            possible_name = clean_text(lines[i + 1])
 
-            strasse, plz_ort = _split_address(adr)
+            # kein label
+            if (
+                len(possible_name.split()) <= 4
+                and not re.search(r"\d", possible_name)
+                and "gutachten" not in possible_name.lower()
+            ):
+                result["name"] = possible_name
 
-            result["strasse"] = strasse
-            result["plz_ort"] = plz_ort
+        # strasse
+        if i + 2 < len(lines):
+
+            possible_street = clean_text(lines[i + 2])
+
+            if re.search(r"\d", possible_street):
+                result["strasse"] = possible_street
+
+        # plz ort
+        if i + 3 < len(lines):
+
+            possible_city = clean_text(lines[i + 3])
+
+            if re.search(r"\b\d{5}\b", possible_city):
+                result["plz_ort"] = possible_city
 
         break
 
-    return (
-        result["name"],
-        result["strasse"],
-        result["plz_ort"],
-    )
+    # -----------------------------------------------------
+    # FALLBACK:
+    #
+    # Anspruchsteller Mandy Schramm
+    # Amselweg 58, 06110 Halle
+    # -----------------------------------------------------
+
+    if not result["name"]:
+
+        idx, line = _find_line(
+            lines,
+            r"Anspruchsteller",
+        )
+
+        if idx >= 0:
+
+            m = re.search(
+                r"Anspruchsteller\s+(.+)",
+                line,
+                re.I,
+            )
+
+            if m:
+
+                result["name"] = clean_text(
+                    m.group(1)
+                )
+
+            if idx + 1 < len(lines):
+
+                adr = clean_text(lines[idx + 1])
+
+                street, city = _split_address(adr)
+
+                result["strasse"] = street
+                result["plz_ort"] = city
+
+    return result
 
 
 # =========================================================
 # VERSICHERUNG
 # =========================================================
 
-def _extract_versicherung(lines: List[str]):
+def _extract_versicherung(lines):
 
-    versicherung = ""
-    ver_strasse = ""
-    ver_ort = ""
+    result = {
+        "versicherung": "",
+        "strasse": "",
+        "ort": "",
+    }
 
-    for i, line in enumerate(lines):
+    idx, line = _find_line(
+        lines,
+        r"Schadennummer\s*\-\s*Versicherung",
+    )
 
-        line_clean = clean_text(line)
+    if idx < 0:
+        return result
 
-        # -----------------------------------------
-        # Schadennummer - Versicherung AXA Versicherung
-        # -----------------------------------------
+    # ---------------------------------------------
+    # Schadennummer - Versicherung AXA Versicherung
+    # ---------------------------------------------
+
+    m = re.search(
+        r"Versicherung\s+(.+)",
+        line,
+        re.I,
+    )
+
+    if m:
+
+        result["versicherung"] = clean_text(
+            m.group(1)
+        )
+
+    # ---------------------------------------------
+    # nächste zeile:
+    # Kfz- Schadenabteilung
+    #
+    # übernächste:
+    # Dovestraße 2-4, 10587 Berlin
+    # ---------------------------------------------
+
+    if idx + 2 < len(lines):
+
+        adr = clean_text(lines[idx + 2])
+
+        street, city = _split_address(adr)
+
+        result["strasse"] = street
+        result["ort"] = city
+
+    return result
+
+
+# =========================================================
+# KENNZEICHEN
+# =========================================================
+
+def _extract_kennzeichen(lines):
+
+    result = {
+        "mandant": "",
+        "gegner": "",
+    }
+
+    for line in lines:
+
+        low = line.lower()
+
+        if "kennzeichen" not in low:
+            continue
+
+        kz = _extract_license(line)
+
+        if not kz:
+            continue
+
+        # AST = Anspruchsteller
+        if "(ast)" in low:
+
+            result["mandant"] = kz
+
+        # VN = Gegner
+        elif "(vn)" in low:
+
+            result["gegner"] = kz
+
+    return result
+
+
+# =========================================================
+# AKTENZEICHEN
+# =========================================================
+
+def _extract_aktenzeichen(lines):
+
+    # AP12364D
+
+    for i, line in enumerate(lines[:40]):
 
         m = re.search(
-            r"versicherung\s+(.+versicherung)",
-            line_clean,
+            r"\b(AP[0-9A-Z]+)\b",
+            line,
             re.I,
         )
 
-        if not m:
-            continue
-
-        versicherung = clean_text(m.group(1))
-
-        # -----------------------------------------
-        # adresse meist 2 zeilen weiter
-        # -----------------------------------------
-
-        if i + 2 < len(lines):
-
-            adr = clean_text(lines[i + 2])
-
-            ver_strasse, ver_ort = _split_address(adr)
-
-        break
-
-    return versicherung, ver_strasse, ver_ort
-
-
-# =========================================================
-# ANREDE
-# =========================================================
-
-def _extract_anrede(lines: List[str]) -> str:
-
-    for line in lines[:20]:
-
-        txt = clean_text(line).lower()
-
-        if txt == "herr":
-            return "Herr"
-
-        if txt == "frau":
-            return "Frau"
+        if m:
+            return clean_text(m.group(1))
 
     return ""
+
+
+# =========================================================
+# FAHRZEUG
+# =========================================================
+
+def _extract_fahrzeugtyp(lines):
+
+    fabrikat = ""
+    typ = ""
+
+    for line in lines:
+
+        m1 = re.search(
+            r"Fabrikat:\s*(.+)",
+            line,
+            re.I,
+        )
+
+        if m1:
+            fabrikat = clean_text(m1.group(1))
+
+        m2 = re.search(
+            r"Typ\s*/\s*Untertyp:\s*(.+)",
+            line,
+            re.I,
+        )
+
+        if m2:
+            typ = clean_text(m2.group(1))
+
+    # doppeltes FR entfernen
+    typ = re.sub(
+        r"\b(FR)\s+\1\b",
+        r"\1",
+        typ,
+        flags=re.I,
+    )
+
+    return clean_text(
+        f"{fabrikat} {typ}".strip()
+    )
 
 
 # =========================================================
@@ -247,8 +370,8 @@ def parse_stotko(
     pdf_source=None,
 ) -> Dict[str, Any]:
 
-    first_page = pages[0] if pages else ""
     full = "\n".join(pages)
+    first_page = pages[0] if pages else ""
 
     lines = _get_lines(full)
 
@@ -258,106 +381,116 @@ def parse_stotko(
     # AKTENZEICHEN
     # =====================================================
 
-    data["AKTENZEICHEN"] = _search_value(
-        lines,
-        [
-            r"Nr\.?\s*[:\-]?\s*(AP[0-9A-Z]+)",
-            r"Gutachtennummer\s*[:\-]?\s*(.+)",
-            r"Aktenzeichen\s*[:\-]?\s*(.+)",
-        ],
+    data["AKTENZEICHEN"] = _extract_aktenzeichen(
+        lines
     )
 
     # =====================================================
     # MANDANT
     # =====================================================
 
-    raw_name, mandant_strasse, mandant_plz_ort = (
-        _extract_mandant_block(lines)
-    )
+    mandant = _extract_mandant(lines)
 
-    _, clean_name = cleanup_name(raw_name)
+    raw_name = mandant["name"]
 
-    anrede = _extract_anrede(lines)
+    title, clean_name = cleanup_name(raw_name)
 
-    data["MANDANT_ANREDE"] = anrede
+    data["MANDANT_ANREDE"] = mandant["anrede"]
+
     data["MANDANT_NAME"] = clean_name
-    data["MANDANT_STRASSE"] = mandant_strasse
-    data["MANDANT_PLZ_ORT"] = mandant_plz_ort
+    data["MANDANT_TITEL"] = title
 
-    # -----------------------------------------------------
+    data["MANDANT_STRASSE"] = mandant["strasse"]
+    data["MANDANT_PLZ_ORT"] = mandant["plz_ort"]
 
-    if anrede.lower() == "herr":
+    data["MANDANT_VOLLNAME"] = clean_name
+
+    # Vorname / Nachname
+
+    split_name = clean_name.split()
+
+    if len(split_name) >= 2:
+
+        data["MANDANT_VORNAME"] = split_name[0]
+        data["MANDANT_NACHNAME"] = " ".join(
+            split_name[1:]
+        )
+
+    else:
+
+        data["MANDANT_VORNAME"] = ""
+        data["MANDANT_NACHNAME"] = ""
+
+    # Gender
+
+    if mandant["anrede"].lower() == "frau":
+
+        data["MANDANT_GENDER1"] = ""
+        data["MANDANT_GENDER2"] = "Frau"
+
+        data["GENDER1"] = "Ihrer"
+        data["GENDER2"] = "meiner Mandantin"
+
+    elif mandant["anrede"].lower() == "herr":
 
         data["MANDANT_GENDER1"] = "Herr"
         data["MANDANT_GENDER2"] = ""
 
-    elif anrede.lower() == "frau":
-
-        data["MANDANT_GENDER1"] = ""
-        data["MANDANT_GENDER2"] = "Frau"
+        data["GENDER1"] = "Ihrem"
+        data["GENDER2"] = "meinem Mandanten"
 
     else:
 
         data["MANDANT_GENDER1"] = ""
         data["MANDANT_GENDER2"] = ""
 
-    # =====================================================
-    # KENNZEICHEN
-    # =====================================================
+        data["GENDER1"] = ""
+        data["GENDER2"] = ""
 
-    data["KENNZEICHEN_MANDANT"] = ""
-    data["KENNZEICHEN_GEGNER"] = ""
-
-    for line in lines:
-
-        low = line.lower()
-
-        if "kennzeichen" not in low:
-            continue
-
-        kennzeichen = _extract_license_from_line(line)
-
-        if not kennzeichen:
-            continue
-
-        # AST = anspruchsteller
-        if "(ast)" in low:
-
-            data["KENNZEICHEN_MANDANT"] = kennzeichen
-
-        # VN = versicherungsnehmer
-        elif "(vn)" in low:
-
-            data["KENNZEICHEN_GEGNER"] = kennzeichen
-
-        # fallback
-        elif not data["KENNZEICHEN_MANDANT"]:
-
-            data["KENNZEICHEN_MANDANT"] = kennzeichen
+    data["GENDERN"] = data["GENDER1"]
+    data["GENDERN1"] = data["GENDER1"]
+    data["GENDERN2"] = data["GENDER2"]
 
     # =====================================================
     # VERSICHERUNG
     # =====================================================
 
-    versicherung, ver_str, ver_ort = (
-        _extract_versicherung(lines)
-    )
+    ver = _extract_versicherung(lines)
 
-    data["VERSICHERUNG"] = versicherung
-    data["VER_STRASSE"] = ver_str
-    data["VER_ORT"] = ver_ort
+    data["VERSICHERUNG"] = ver["versicherung"]
+    data["VRSICHERUNG"] = ver["versicherung"]
+
+    data["VER_STRASSE"] = ver["strasse"]
+    data["VER_ORT"] = ver["ort"]
+
+    # =====================================================
+    # KENNZEICHEN
+    # =====================================================
+
+    kz = _extract_kennzeichen(lines)
+
+    data["KENNZEICHEN_MANDANT"] = kz["mandant"]
+    data["KENNZEICHEN_GEGNER"] = kz["gegner"]
+
+    data["KENNZEICHEN"] = kz["mandant"]
+    data["EIGENES_KENNZEICHEN"] = kz["mandant"]
 
     # =====================================================
     # SCHADENSNUMMER
     # =====================================================
 
-    data["SCHADENSNUMMER"] = _search_value(
-        lines,
-        [
-            r"Schadennummer\s*[-:]?\s*(.+)",
-            r"Schaden-Nr\.?\s*[:\-]?\s*(.+)",
-        ],
+    m = re.search(
+        r"Versicherungsnummer\s+([A-Z0-9\-\/]+)",
+        full,
+        re.I,
     )
+
+    if m:
+        data["SCHADENSNUMMER"] = clean_text(
+            m.group(1)
+        )
+    else:
+        data["SCHADENSNUMMER"] = ""
 
     # =====================================================
     # DATEN
@@ -377,52 +510,29 @@ def parse_stotko(
     # FAHRZEUG
     # =====================================================
 
-    fabrikat = _search_value(
-        lines,
-        [
-            r"Fabrikat\s*[:\-]?\s*(.+)",
-            r"Hersteller\s*[:\-]?\s*(.+)",
-        ],
-    )
-
-    typ = _search_value(
-        lines,
-        [
-            r"Typ\s*/\s*Untertyp\s*[:\-]?\s*(.+)",
-            r"Untertyp\s*[:\-]?\s*(.+)",
-        ],
-    )
-
-    typ = re.sub(
-        r"\b(FR)\s+\1\b",
-        r"\1",
-        typ,
-        flags=re.I,
-    )
-
-    data["FAHRZEUGTYP"] = clean_text(
-        f"{fabrikat} {typ}".strip()
+    data["FAHRZEUGTYP"] = _extract_fahrzeugtyp(
+        lines
     )
 
     # =====================================================
-    # WERTE
+    # GELDWERTE
     # =====================================================
 
-    data["WERTMINDERUNG"] = extract_money(
+    data["WERTMINDERUNG"] = _money(
         full,
         [
             r"Wertminderung.*?([0-9\.\,]+)",
         ],
     )
 
-    data["WBW"] = extract_money(
+    data["WBW"] = _money(
         full,
         [
             r"Wiederbeschaffungswert.*?([0-9\.\,]+)",
         ],
     )
 
-    data["RESTWERT"] = extract_money(
+    data["RESTWERT"] = _money(
         full,
         [
             r"Restwert.*?([0-9\.\,]+)",
@@ -433,7 +543,7 @@ def parse_stotko(
     # REPARATURKOSTEN
     # =====================================================
 
-    data["REPARATURKOSTEN_NETTO"] = extract_money(
+    data["REPARATURKOSTEN_NETTO"] = _money(
         full,
         [
             r"Reparaturkosten ohne MwSt\.?\s*([0-9\.\,]+)",
@@ -441,41 +551,13 @@ def parse_stotko(
         ],
     )
 
-    data["REPARATURKOSTEN_BRUTTO"] = extract_money(
+    data["REPARATURKOSTEN_BRUTTO"] = _money(
         full,
         [
-            r"Reparaturkosten inkl\. MwSt\.?\s*([0-9\.\,]+)",
             r"Reparaturkosten brutto\s*([0-9\.\,]+)",
+            r"Reparaturkosten inkl\. MwSt\.?\s*([0-9\.\,]+)",
         ],
     )
-
-    # =====================================================
-    # GUTACHTERKOSTEN
-    # =====================================================
-
-    data["GUTACHTERKOSTEN_BRUTTO"] = extract_money(
-        first_page,
-        [
-            r"Rechnungsbetrag brutto.*?([0-9\.\,]+)",
-            r"Rechnungsbetrag inkl.*?([0-9\.\,]+)",
-        ],
-    )
-
-    # =====================================================
-    # FIX FELDER
-    # =====================================================
-
-    data.setdefault("WERTVERBESSERUNG", "")
-    data.setdefault("UNFALL_UHRZEIT", "")
-    data.setdefault("UNFALL_STRASSE", "")
-    data.setdefault("UNFALL_ORT", "")
-
-    # =====================================================
-    # ZUSATZFELDER
-    # =====================================================
-
-    data["KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
-    data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
 
     data["REPARATURKOSTEN"] = (
         data["REPARATURKOSTEN_NETTO"]
@@ -485,46 +567,44 @@ def parse_stotko(
         data["REPARATURKOSTEN_NETTO"]
     )
 
+    # =====================================================
+    # GUTACHTERKOSTEN
+    # =====================================================
+
+    data["GUTACHTERKOSTEN_BRUTTO"] = _money(
+        first_page,
+        [
+            r"Rechnungsbetrag brutto.*?([0-9\.\,]+)",
+            r"Rechnungsbetrag inkl.*?([0-9\.\,]+)",
+        ],
+    )
+
     data["GUTACHTERKOSTEN"] = (
         data["GUTACHTERKOSTEN_BRUTTO"]
     )
 
-    data["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
+    # =====================================================
+    # FIX FELDER
+    # =====================================================
 
-    if data["WBW"] and data["RESTWERT"]:
+    data.setdefault("UNFALL_UHRZEIT", "")
+    data.setdefault("UNFALL_STRASSE", "")
+    data.setdefault("UNFALL_ORT", "")
 
-        try:
+    data.setdefault("WERTVERBESSERUNG", "")
 
-            wbw = float(
-                data["WBW"]
-                .replace(".", "")
-                .replace(",", ".")
-                .replace("€", "")
-                .strip()
-            )
+    data.setdefault("WERTVERBESSERUNG_NAME", "")
+    data.setdefault("WERTBESSERUNG_BETRAG", "")
 
-            restwert = float(
-                data["RESTWERT"]
-                .replace(".", "")
-                .replace(",", ".")
-                .replace("€", "")
-                .strip()
-            )
+    data["WERTMINDERUNG_NAME"] = "Wertminderung"
+    data["WERTMINDERUNG_BETRAG"] = (
+        data["WERTMINDERUNG"]
+    )
 
-            diff = wbw - restwert
-
-            data["WIEDERBESCHAFFUNGSWERTAUFWAND"] = (
-                f"{diff:,.2f} €"
-                .replace(",", "X")
-                .replace(".", ",")
-                .replace("X", ".")
-            )
-
-        except:
-            pass
+    data.setdefault("KOSTENPAUSCHALE", "25,00 €")
 
     # =====================================================
-    # PARSER INFO
+    # PARSER
     # =====================================================
 
     data["_PARSER"] = "stotko"
