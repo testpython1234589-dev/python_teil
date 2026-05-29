@@ -590,28 +590,28 @@ def parse_stotko(
     # SCHADENSNUMMER
     # =====================================================
 
-    m = re.search(
-        r"Schadennummer.*?([0-9\/\-\s]+)",
+       m = re.search(
+        r"(?:Schadennummer|Versicherungsnummer)\s*[:\-]?\s*([A-Z0-9\/\-\s]+)",
         full,
         re.I,
     )
-
-    if not m:
-
-        m = re.search(
-            r"Versicherungsnummer.*?([0-9\/\-\s]+)",
-            full,
-            re.I,
-        )
-
+    
     if m:
-
-        data["SCHADENSNUMMER"] = (
-            clean_text(m.group(1))
+    
+        nummer = clean_text(
+            m.group(1)
         )
-
+    
+        nummer = re.sub(
+            r"\s+",
+            " ",
+            nummer,
+        ).strip()
+    
+        data["SCHADENSNUMMER"] = nummer
+    
     else:
-
+    
         data["SCHADENSNUMMER"] = ""
 
     # =====================================================
