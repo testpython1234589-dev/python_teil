@@ -12,6 +12,33 @@ from common import (
 # =========================================================
 # HELPERS
 # =========================================================
+def _to_float(value):
+
+    if not value:
+        return 0.0
+
+    value = (
+        str(value)
+        .replace("€", "")
+        .replace(".", "")
+        .replace(",", ".")
+        .strip()
+    )
+
+    try:
+        return float(value)
+    except:
+        return 0.0
+
+
+def _to_euro(value):
+
+    return (
+        f"{value:,.2f} €"
+        .replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
 
 def _get_lines(text: str) -> List[str]:
     return [
@@ -194,46 +221,53 @@ def _extract_versicherung(lines):
         "ort": "",
     }
 
-    idx, line = _find_line(
-        lines,
-        r"Schadennummer\s*\-\s*Versicherung",
-    )
+    for i, line in enumerate(lines):
 
-    if idx < 0:
-        return result
+        low = line.lower()
 
-    # ---------------------------------------------
-    # Schadennummer - Versicherung AXA Versicherung
-    # ---------------------------------------------
+        if "versicherung" not in low:
+            continue
 
-    m = re.search(
-        r"Versicherung\s+(.+)",
-        line,
-        re.I,
-    )
+        # NICHT:
+        # Versicherungsschein
+        if "versicherungsschein" in low:
+            continue
 
-    if m:
+        # -----------------------------------
+        # AXA Versicherung
+        # -----------------------------------
 
-        result["versicherung"] = clean_text(
-            m.group(1)
+        m = re.search(
+            r"([A-ZÄÖÜa-zäöüß\s]+versicherung)",
+            line,
+            re.I,
         )
 
-    # ---------------------------------------------
-    # nächste zeile:
-    # Kfz- Schadenabteilung
-    #
-    # übernächste:
-    # Dovestraße 2-4, 10587 Berlin
-    # ---------------------------------------------
+        if m:
 
-    if idx + 2 < len(lines):
+            result["versicherung"] = clean_text(
+                m.group(1)
+            )
 
-        adr = clean_text(lines[idx + 2])
+        # -----------------------------------
+        # adresse suchen
+        # -----------------------------------
 
-        street, city = _split_address(adr)
+        for j in range(i, min(i + 5, len(lines))):
 
-        result["strasse"] = street
-        result["ort"] = city
+            current = clean_text(lines[j])
+
+            if "," in current and re.search(r"\d{5}", current):
+
+                street, city = _split_address(current)
+
+                result["strasse"] = street
+                result["ort"] = city
+
+                break
+
+        if result["versicherung"]:
+            break
 
     return result
 
@@ -337,6 +371,10 @@ def _extract_fahrzeugtyp(lines):
         f"{fabrikat} {typ}".strip()
     )
 
+
+    text = text.replace("|", " ")
+    text = text.replace("ﬁ", "fi")
+    text = re.sub(r"\s+", " ", text)
 
 # =========================================================
 # PARSER
@@ -460,6 +498,11 @@ def parse_stotko(
         r"Versicherungsnummer\s+([A-Z0-9\-\/]+)",
         full,
         re.I,
+       
+        r"Schadennummer.*?([0-9\/\-\s]+)",
+        full,
+        re.I,
+
     )
 
     if m:
@@ -558,6 +601,25 @@ def parse_stotko(
 
     data["GUTACHTERKOSTEN"] = (
         data["GUTACHTERKOSTEN_BRUTTO"]
+    )
+
+
+    rep = _to_float(data["REPARATURKOSTEN_BRUTTO"])
+    gut = _to_float(data["GUTACHTERKOSTEN_BRUTTO"])
+    wm = _to_float(data["WERTMINDERUNG"])
+    
+    data["KOSTENSUMME_REPARATUR"] = _to_euro(
+        rep + gut + wm + 25
+    )
+    
+    wbw = _to_float(data["WBW"])
+    
+    data["KOSTENSUMME_TOTALSCHADEN"] = _to_euro(
+        wbw + gut + 25
+    )
+    
+    data["KOSTENSUMME_X"] = (
+        data["KOSTENSUMME_REPARATUR"]
     )
 
     # =====================================================
