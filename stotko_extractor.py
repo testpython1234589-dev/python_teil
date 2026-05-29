@@ -41,6 +41,7 @@ def _to_float(value):
 
     try:
         return float(value)
+
     except:
         return 0.0
 
@@ -153,9 +154,9 @@ def _extract_mandant(lines):
 
         result["anrede"] = line
 
-        # -----------------------------------
+        # -------------------------------------------------
         # NAME
-        # -----------------------------------
+        # -------------------------------------------------
 
         if i + 1 < len(lines):
 
@@ -167,47 +168,49 @@ def _extract_mandant(lines):
             ):
                 result["name"] = possible_name
 
-        # -----------------------------------
+        # -------------------------------------------------
         # STRASSE
-        # -----------------------------------
+        # -------------------------------------------------
+
+        possible_street = ""
+        possible_city = ""
 
         if i + 2 < len(lines):
-
             possible_street = clean_text(lines[i + 2])
 
-            # Straße + PLZ in gleicher Zeile
-            m = re.search(
-                r"(.+?\d+[a-zA-Z]?)\s+(\d{5}\s+.+)",
-                possible_street,
-            )
-
-            if m:
-
-                result["strasse"] = clean_text(
-                    m.group(1)
-                )
-
-                result["plz_ort"] = clean_text(
-                    m.group(2)
-                )
-
-            elif re.search(r"\d", possible_street):
-
-                result["strasse"] = possible_street
-
-        # -----------------------------------
-        # PLZ ORT
-        # -----------------------------------
-
-        if (
-            not result["plz_ort"]
-            and i + 3 < len(lines)
-        ):
-
+        if i + 3 < len(lines):
             possible_city = clean_text(lines[i + 3])
 
-            if re.search(r"\b\d{5}\b", possible_city):
+        # -------------------------------------------------
+        # KOMBINIERTER FALL
+        # Am Rebstock 4 06110 Halle
+        # -------------------------------------------------
 
+        combined = clean_text(
+            f"{possible_street} {possible_city}"
+        )
+
+        m = re.search(
+            r"(.+?\d+[a-zA-Z]?)\s+(\d{5}\s+.+)",
+            combined,
+        )
+
+        if m:
+
+            result["strasse"] = clean_text(
+                m.group(1)
+            )
+
+            result["plz_ort"] = clean_text(
+                m.group(2)
+            )
+
+        else:
+
+            if re.search(r"\d", possible_street):
+                result["strasse"] = possible_street
+
+            if re.search(r"\b\d{5}\b", possible_city):
                 result["plz_ort"] = possible_city
 
         break
@@ -237,9 +240,9 @@ def _extract_versicherung(lines):
         if "versicherungsschein" in low:
             continue
 
-        # -----------------------------------
-        # Versicherung
-        # -----------------------------------
+        # -------------------------------------------------
+        # VERSICHERUNG
+        # -------------------------------------------------
 
         m = re.search(
             r"\b((?:[A-ZÄÖÜ0-9]+[\s\-]*){1,4}Versicherung)\b",
@@ -260,9 +263,9 @@ def _extract_versicherung(lines):
 
             result["versicherung"] = value
 
-        # -----------------------------------
-        # Adresse
-        # -----------------------------------
+        # -------------------------------------------------
+        # ADRESSE
+        # -------------------------------------------------
 
         for j in range(i, min(i + 5, len(lines))):
 
