@@ -12,6 +12,19 @@ from common import (
 # =========================================================
 # HELPERS
 # =========================================================
+
+def _normalize_text(text: str) -> str:
+
+    text = str(text)
+
+    text = text.replace("|", " ")
+    text = text.replace("ﬁ", "fi")
+    text = text.replace("ﬂ", "fl")
+
+    text = re.sub(r"[ \t]+", " ", text)
+
+    return text
+
 def _to_float(value):
 
     if not value:
@@ -372,9 +385,7 @@ def _extract_fahrzeugtyp(lines):
     )
 
 
-    text = text.replace("|", " ")
-    text = text.replace("ﬁ", "fi")
-    text = re.sub(r"\s+", " ", text)
+
 
 # =========================================================
 # PARSER
@@ -384,6 +395,12 @@ def parse_stotko(
     pages: List[str],
     pdf_source=None,
 ) -> Dict[str, Any]:
+
+    full = "\n".join(pages)
+    full = _normalize_text(full)
+    
+    first_page = pages[0] if pages else ""
+    first_page = _normalize_text(first_page)
 
     full = "\n".join(pages)
     first_page = pages[0] if pages else ""
@@ -495,15 +512,18 @@ def parse_stotko(
     # =====================================================
 
     m = re.search(
-        r"Versicherungsnummer\s+([A-Z0-9\-\/]+)",
-        full,
-        re.I,
-       
         r"Schadennummer.*?([0-9\/\-\s]+)",
         full,
         re.I,
-
     )
+    
+    if not m:
+    
+        m = re.search(
+           r"([A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-\s]+Versicherung)",
+            full,
+            re.I,
+        )
 
     if m:
         data["SCHADENSNUMMER"] = clean_text(
