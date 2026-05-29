@@ -116,16 +116,7 @@ def _extract_mandant(lines):
         "plz_ort": "",
     }
 
-    # -----------------------------------------------------
-    # BLOCK AUF SEITE 1
-    #
-    # Frau
-    # Mandy Schramm
-    # Amselweg 58
-    # 06110 Halle
-    # -----------------------------------------------------
-
-    for i, line in enumerate(lines[:40]):
+    for i, line in enumerate(lines[:50]):
 
         low = line.lower()
 
@@ -134,20 +125,24 @@ def _extract_mandant(lines):
 
         result["anrede"] = line
 
-        # name
+        # -----------------------------------
+        # NAME
+        # -----------------------------------
+
         if i + 1 < len(lines):
 
             possible_name = clean_text(lines[i + 1])
 
-            # kein label
             if (
-                len(possible_name.split()) <= 4
-                and not re.search(r"\d", possible_name)
-                and "gutachten" not in possible_name.lower()
+                not re.search(r"\d", possible_name)
+                and len(possible_name.split()) <= 5
             ):
                 result["name"] = possible_name
 
-        # strasse
+        # -----------------------------------
+        # STRASSE
+        # -----------------------------------
+
         if i + 2 < len(lines):
 
             possible_street = clean_text(lines[i + 2])
@@ -155,52 +150,34 @@ def _extract_mandant(lines):
             if re.search(r"\d", possible_street):
                 result["strasse"] = possible_street
 
-        # plz ort
+        # -----------------------------------
+        # PLZ ORT
+        # -----------------------------------
+
         if i + 3 < len(lines):
 
             possible_city = clean_text(lines[i + 3])
 
             if re.search(r"\b\d{5}\b", possible_city):
+
                 result["plz_ort"] = possible_city
 
+        # -----------------------------------
+        # FALL:
+        # Straße + PLZ in EINER Zeile
+        # -----------------------------------
+
+        if (
+            not result["plz_ort"]
+            and "," in result["strasse"]
+        ):
+
+            left, right = result["strasse"].split(",", 1)
+
+            result["strasse"] = clean_text(left)
+            result["plz_ort"] = clean_text(right)
+
         break
-
-    # -----------------------------------------------------
-    # FALLBACK:
-    #
-    # Anspruchsteller Mandy Schramm
-    # Amselweg 58, 06110 Halle
-    # -----------------------------------------------------
-
-    if not result["name"]:
-
-        idx, line = _find_line(
-            lines,
-            r"Anspruchsteller",
-        )
-
-        if idx >= 0:
-
-            m = re.search(
-                r"Anspruchsteller\s+(.+)",
-                line,
-                re.I,
-            )
-
-            if m:
-
-                result["name"] = clean_text(
-                    m.group(1)
-                )
-
-            if idx + 1 < len(lines):
-
-                adr = clean_text(lines[idx + 1])
-
-                street, city = _split_address(adr)
-
-                result["strasse"] = street
-                result["plz_ort"] = city
 
     return result
 
