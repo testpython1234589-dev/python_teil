@@ -40,7 +40,6 @@ def _extract_header_anrede(lines: List[str]) -> str:
 def _split_street_plz_ort(line: str):
     line = clean_text(line)
 
-    # PLZ erkennen
     m = re.search(r"\b\d{5}\b.*", line)
     if m:
         plz_ort = m.group(0)
@@ -50,18 +49,43 @@ def _split_street_plz_ort(line: str):
     return line, ""
 
 
-def _extract_mandant_block(lines: List[str]):
+def _split_versicherung_line(line: str):
     """
-    Robuste Erkennung für Stotko:
-    Funktioniert für:
-    - Anspruchsteller: Max Mustermann
-    - Anspruchsteller:
-      Max Mustermann
-      Straße
-      PLZ Ort
-    - Mit oder ohne Anrede
+    Trennt robust:
+    "Allianz AG, 80331 München"
+    "80331 München, Allianz AG"
+    "Allianz AG 80331 München"
     """
+    line = clean_text(line)
 
+    if not line:
+        return "", ""
+
+    # Komma-Fall
+    if "," in line:
+        left, right = line.split(",", 1)
+        left = clean_text(left)
+        right = clean_text(right)
+
+        if re.search(r"\b\d{5}\b", right):
+            return left, right
+
+        if re.search(r"\b\d{5}\b", left):
+            return right, left
+
+        return left, right
+
+    # Ohne Komma → über PLZ
+    m = re.search(r"\b\d{5}\b.*", line)
+    if m:
+        ort = m.group(0)
+        strasse = line.replace(ort, "").strip()
+        return strasse, ort
+
+    return line, ""
+
+
+def _extract_mandant_block(lines: List[str]):
     name = ""
     strasse = ""
     plz_ort = ""
@@ -71,37 +95,30 @@ def _extract_mandant_block(lines: List[str]):
 
         if "anspruchsteller" in l:
 
-            # ---- NAME ----
             raw_name = _value_after_inline_label([line], "Anspruchsteller")
 
             if raw_name:
                 name = raw_name
                 offset = 1
             else:
-                # Name steht in nächster Zeile
                 if i + 1 < len(lines):
                     name = lines[i + 1]
                 offset = 2
 
-            # ---- ADRESSE (mehrere Varianten testen) ----
             candidates = []
-
             for j in range(i + offset, min(i + offset + 4, len(lines))):
                 candidates.append(lines[j])
 
-            # Suche PLZ zuerst (stabilster Marker)
             for c in candidates:
                 if re.search(r"\b\d{5}\b", c):
                     plz_ort = c
                     break
 
-            # Straße = Zeile davor
             if plz_ort:
                 idx = candidates.index(plz_ort)
                 if idx > 0:
                     strasse = candidates[idx - 1]
             else:
-                # Fallback (alte Logik)
                 if len(candidates) >= 2:
                     strasse = candidates[0]
                     plz_ort = candidates[1]
@@ -120,7 +137,6 @@ def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     full = "\n".join(pages)
 
     data: Dict[str, Any] = {}
-
     all_lines = _get_lines(full)
 
     # -------------------------
@@ -132,10 +148,9 @@ def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     )
 
     # -------------------------
-    # MANDANT (FIX)
+    # MANDANT
     # -------------------------
     raw_name, mandant_strasse, mandant_plz_ort = _extract_mandant_block(all_lines)
-
     _, clean_name = cleanup_name(raw_name)
 
     anrede = _extract_header_anrede(all_lines)
@@ -145,7 +160,6 @@ def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     data["MANDANT_STRASSE"] = mandant_strasse
     data["MANDANT_PLZ_ORT"] = mandant_plz_ort
 
-    # OPTIONAL: Gender wie bei schnur
     if anrede.lower() == "herr":
         data["MANDANT_GENDER1"] = "Herr"
         data["MANDANT_GENDER2"] = ""
@@ -167,15 +181,26 @@ def parse_stotko(pages: List[str], pdf_source=None) -> Dict[str, Any]:
     )
 
     # -------------------------
-    # VERSICHERUNG
+    # VERSICHERUNG (FIX)
     # -------------------------
     data["VERSICHERUNG"] = _value_after_inline_label(all_lines, "Versicherung")
 
     for i, line in enumerate(all_lines):
         if "versicherung" in line.lower():
-            if i + 2 < len(all_lines):
-                data["VER_STRASSE"] = all_lines[i + 1]
-                data["VER_ORT"] = all_lines[i + 2]
+
+            candidate = ""
+
+            if i + 1 < len(all_lines):
+                candidate = all_lines[i + 1]
+
+            if not candidate and i + 2 < len(all_lines):
+                candidate = all_lines[i + 2]
+
+            ver_str, ver_ort = _split_versicherung_line(candidate)
+
+            data["VER_STRASSE"] = ver_str
+            data["VER_ORT"] = ver_ort
+
             break
 
     # -------------------------
