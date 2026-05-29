@@ -21,6 +21,7 @@ TEMPLATES = {
 GUTACHTER = {
     "GutachterExpress": "gutachterexpress",
     "Schnur": "schnur",
+    "Stotko": "stotko",
 }
 
 
