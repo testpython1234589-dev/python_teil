@@ -251,16 +251,23 @@ def _extract_versicherung(lines):
         # -----------------------------------
 
         m = re.search(
-            r"([A-ZÄÖÜa-zäöüß\s]+versicherung)",
+            r"\b([A-ZÄÖÜ][A-Za-zÄÖÜäöüß\s\-]+Versicherung)\b",
             line,
             re.I,
         )
 
         if m:
-
-            result["versicherung"] = clean_text(
-                m.group(1)
+        
+            value = clean_text(m.group(1))
+        
+            value = re.sub(
+                r"^Versicherung\s+",
+                "",
+                value,
+                flags=re.I,
             )
+        
+            result["versicherung"] = value
 
         # -----------------------------------
         # adresse suchen
@@ -520,7 +527,7 @@ def parse_stotko(
     if not m:
     
         m = re.search(
-           r"([A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-\s]+Versicherung)",
+            r"Versicherungsnummer.*?([0-9\/\-\s]+)",
             full,
             re.I,
         )
