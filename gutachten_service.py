@@ -22,5 +22,9 @@ def extract_from_pdf_bytes(pdf_bytes: bytes, gutachter_key: str) -> Dict[str, An
         extracted = sx.parse_schnur(pages, pdf_source=pdf_bytes)
         derived = derive_with_existing_logic(extracted)
         return {**extracted, **derived}
+    if gutachter_key == "stotko":
+        extracted = stx.parse_stotko(pages, pdf_source=pdf_bytes)
+        derived = derive_with_existing_logic(extracted)
+        return {**extracted, **derived}
 
     return gx.extract_from_pdf_bytes(pdf_bytes)
