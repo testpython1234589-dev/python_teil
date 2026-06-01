@@ -108,6 +108,7 @@ def build_mahnung_context(extracted: Dict[str, Any]) -> Dict[str, str]:
 
     return {
         # --- Kopfzeile / Betreff ---
+        "AKTENZEICHEN": _get("AKTENZEICHEN"),
         "SCHADENSNUMMER":     _get("SCHADENSNUMMER", "SCHADENNUMMER"),
         "MANDANT_NACHNAME":   _get("MANDANT_NACHNAME"),
         "VERSICHERUNG":       _get("VERSICHERUNG", "VRSICHERUNG"),
@@ -119,6 +120,7 @@ def build_mahnung_context(extracted: Dict[str, Any]) -> Dict[str, str]:
         "FRIST_DATUM":        frist_datum,
         "KOSTENSUMME_X":      _get("KOSTENSUMME_X", "KOSTENSUMME_TOTALSCHADEN", "KOSTENSUMME_REPARATUR"),
         "NEUE_FRIST_DATUM":   neue_frist_datum,
+        "AKTENZEICHEN": aktenzeichen,
 
         # --- Adressblock Mandant ---
         "MANDANT_VORNAME":    _get("MANDANT_VORNAME"),
@@ -185,6 +187,7 @@ def render_mahnung(
 
 if __name__ == "__main__":
     test_data: Dict[str, Any] = {
+        "AKTENZEICHEN": "020/ 26",
         "SCHADENSNUMMER":     "HUK-2026-123456",
         "MANDANT_VORNAME":    "Max",
         "MANDANT_NACHNAME":   "Mustermann",
