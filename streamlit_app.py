@@ -5,6 +5,7 @@ from typing import Dict, Any, List
 
 import word_backend as wb
 import gutachten_service as gs
+import word_mahnung as wm          # ← NEU
 
 
 TEMPLATES = {
@@ -78,7 +79,6 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     updated = dict(ctx)
 
     priority = [
-     
         "MANDANT_ANREDE",
         "MANDANT_VORNAME",
         "MANDANT_NACHNAME",
@@ -175,6 +175,8 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     return updated
 
 
+# ---------------------------------------------------------------------------
+
 st.set_page_config(page_title="Gutachten → Schreiben", layout="wide")
 ensure_state()
 
@@ -253,22 +255,48 @@ else:
 
     with c3:
         if st.button("✅ Word endgültig erzeugen", type="primary"):
+
+            # ── 1. Normales Schreiben (wie bisher) ──────────────────────────
             out_path = wb.render_word(
                 st.session_state["tpl_name"],
                 st.session_state["ctx"],
                 st.session_state["out_prefix"],
             )
 
-            st.success(f"Word erstellt: {out_path.name}")
+            st.success(f"✅ Schreiben erstellt: {out_path.name}")
 
             with open(out_path, "rb") as f:
-                data = f.read()
+                st.download_button(
+                    "⬇️ Download Schreiben",
+                    data=f.read(),
+                    file_name=out_path.name,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key="dl_schreiben",
+                )
 
-            st.download_button(
-                "⬇️ Download .docx",
-                data=data,
-                file_name=out_path.name,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            )
+            # ── 2. Mahnungsschreiben ─────────────────────────────────────────
+            try:
+                # Aktuell bearbeiteten Kontext (inkl. manueller Korrekturen)
+                # mit den rohen extrahierten Feldern zusammenführen, damit
+                # word_mahnung alle Quell-Keys findet.
+                merged = {**st.session_state["extracted"], **st.session_state["ctx"]}
+
+                mahnung_path = wm.render_mahnung(merged)
+
+                st.success(f"✅ Mahnung erstellt: {mahnung_path.name}")
+
+                with open(mahnung_path, "rb") as f:
+                    st.download_button(
+                        "⬇️ Download Mahnung",
+                        data=f.read(),
+                        file_name=mahnung_path.name,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key="dl_mahnung",
+                    )
+
+            except FileNotFoundError as e:
+                st.warning(f"⚠️ Mahnung nicht erstellt: {e}")
+            except Exception as e:
+                st.error(f"❌ Fehler bei Mahnung: {e}")
 
             st.caption(f"Gespeichert in: {wb.OUTPUT_DIR}")
