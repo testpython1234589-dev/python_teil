@@ -65,7 +65,7 @@ def _calculate_neue_frist(frist_datum_str: str) -> str:
     """
     try:
         frist = datetime.strptime(frist_datum_str.strip(), "%d.%m.%Y")
-        return (frist + timedelta(days=7)).strftime("%d.%m.%Y")
+        return (frist + timedelta(days=14)).strftime("%d.%m.%Y")
     except (ValueError, AttributeError):
         return (datetime.now() + timedelta(days=21)).strftime("%d.%m.%Y")
 
