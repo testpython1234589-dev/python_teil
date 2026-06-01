@@ -89,7 +89,7 @@ def build_mahnung_context(extracted: Dict[str, Any]) -> Dict[str, str]:
         Dict mit allen Platzhalter-Werten für word_mahnung.docx.
     """
 
-    def _get(*keys: str, default: str = "") -> str:
+    def _get(*keys: str, default: str = "") -> str: #entnimmt felder aus tabelle bzw Gutachten analyse.
         """Ersten nicht-leeren Wert aus den angegebenen Keys zurückgeben."""
         for key in keys:
             value = extracted.get(key)
