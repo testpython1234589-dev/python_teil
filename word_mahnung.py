@@ -120,8 +120,7 @@ def build_mahnung_context(extracted: Dict[str, Any]) -> Dict[str, str]:
         "FRIST_DATUM":        frist_datum,
         "KOSTENSUMME_X":      _get("KOSTENSUMME_X", "KOSTENSUMME_TOTALSCHADEN", "KOSTENSUMME_REPARATUR"),
         "NEUE_FRIST_DATUM":   neue_frist_datum,
-        "AKTENZEICHEN": aktenzeichen,
-
+  
         # --- Adressblock Mandant ---
         "MANDANT_VORNAME":    _get("MANDANT_VORNAME"),
         "MANDANT_STRASSE":    _get("MANDANT_STRASSE"),
