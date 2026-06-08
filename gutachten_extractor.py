@@ -517,7 +517,11 @@ def _parse_gutachterexpress(pages: List[str], pdf_source: str | Path | bytes | N
         ],
     )
 
-        # 🔥 RESTWERT HINZUFÜGEN (FEHLT AKTUELL)
+   
+    p_rest    = _find_page(pages, ["Restwertermittlung"],                               excludes=["Inhaltsverzeichnis"])
+    p_summary = _find_page(pages, ["Zusammenfassung", "Reparaturkosten ohne MwSt."],   excludes=["Inhaltsverzeichnis"])
+    
+    rest_text = p_rest or p_summary or full
 
     data["RESTWERT"] = _extract_restwert_robust(full)
              
