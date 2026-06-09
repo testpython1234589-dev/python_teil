@@ -15,6 +15,7 @@ def extract_from_pdf_bytes(
     template_label: str,
 ) -> Dict[str, Any]:
 
+    # Schnur
     if gutachter_key == "schnur":
         text = gx.pdf_to_text(pdf_bytes)
         pages = gx._split_pages(text)
@@ -28,7 +29,7 @@ def extract_from_pdf_bytes(
 
         return {**extracted, **derived}
 
-
+    # Stotko
     if gutachter_key == "stotko":
         text = gx.pdf_to_text(pdf_bytes)
         pages = gx._split_pages(text)
@@ -41,47 +42,39 @@ def extract_from_pdf_bytes(
         derived = derive_with_existing_logic(extracted)
 
         return {**extracted, **derived}
-        
-        if gutachter_key == "gutachterexpress":
-        
-            if template_label == "Nutzfahrzeuge Standard":
-        
-                text = gx.pdf_to_text(pdf_bytes)
-                pages = gx._split_pages(text)
-        
-                extracted = ns.parse_nfz_standard(
-                    pages,
-                    pdf_source=pdf_bytes,
-                )
-        
-                extracted["_PARSER"] = "nfz_standard"
-        
-                derived = derive_with_existing_logic(extracted)
-        
-                return {**extracted, **derived}
-        
-        
-            elif template_label == "Nutzfahrzeuge Totalschaden":
-        
-                text = gx.pdf_to_text(pdf_bytes)
-                pages = gx._split_pages(text)
-        
-                extracted = nt.parse_nfz_totalschaden(
-                    pages,
-                    pdf_source=pdf_bytes,
-                )
 
-        extracted["_PARSER"] = "nfz_totalschaden"
+    # GutachterExpress
+    if gutachter_key == "gutachterexpress":
+
+        text = gx.pdf_to_text(pdf_bytes)
+        pages = gx._split_pages(text)
+
+        if template_label == "Nutzfahrzeuge Standard":
+
+            extracted = ns.parse_nfz_standard(
+                pages,
+                pdf_source=pdf_bytes,
+            )
+
+            extracted["_PARSER"] = "nfz_standard"
+
+        elif template_label == "Nutzfahrzeuge Totalschaden":
+
+            extracted = nt.parse_nfz_totalschaden(
+                pages,
+                pdf_source=pdf_bytes,
+            )
+
+            extracted["_PARSER"] = "nfz_totalschaden"
+
+        else:
+            return gx.extract_from_pdf_bytes(pdf_bytes)
 
         derived = derive_with_existing_logic(extracted)
 
         return {**extracted, **derived}
 
-        derived = derive_with_existing_logic(extracted)
-
-        return {**extracted, **derived}
-
-
+    # Standard GutachterExpress
     return gx.extract_from_pdf_bytes(pdf_bytes)
 
 
