@@ -9,10 +9,15 @@ import word_mahnung as wm          # ← NEU
 
 
 TEMPLATES = {
+
     "gutachterexpress": {
         "Standard Schreiben": ("vorlage_schreiben-1-express.docx", "Standard_schreiben"),
         "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1-express.docx", "schreibentotalschaden"),
+
+        "Nutzfahrzeuge Standard": ("vorlage_nfz_standard-express.docx", "nfz_standard"),
+        "Nutzfahrzeuge Totalschaden": ("vorlage_nfz_totalschaden-express.docx", "nfz_totalschaden"),
     },
+
     "schnur": {
         "Standard Schreiben": ("vorlage_schreiben-1-schnur.docx", "Standard_schreiben_schnur"),
         "Schreiben Totalschaden": ("vorlage_schreibentotalschaden-1-schnur.docx", "schreibentotalschaden_schnur"),
