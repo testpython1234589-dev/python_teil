@@ -200,8 +200,12 @@ show_debug = st.toggle("Debug anzeigen (Extrahierte Werte)", value=True)
 if st.session_state["step"] == "extract":
     if st.button("🔎 Werte aus PDF extrahieren", type="primary", disabled=(pdf_file is None)):
         pdf_bytes = pdf_file.read()
-
-        extracted = gs.extract_from_pdf_bytes(pdf_bytes, gutachter_key)
+        
+        extracted = gs.extract_from_pdf_bytes(
+            pdf_bytes,
+            gutachter_key,
+            template_label,
+        )
         template_keys = sorted(list(wb.get_template_vars(tpl_name)))
         ctx = gs.build_context(set(template_keys), extracted)
 
