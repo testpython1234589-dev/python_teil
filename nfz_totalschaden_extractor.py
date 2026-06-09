@@ -27,22 +27,23 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
 
     # Mandant
     m = re.search(
-        r"Anspruchsteller\s*\n(.+?)\nHerr\s+(.+?)\n",
-        full,
-        re.S,
+    r"Anspruchsteller\s*\n(.+?)\nHerr\s+([A-ZÄÖÜ][a-zäöüß]+\s+[A-ZÄÖÜ][a-zäöüß\-]+)",
+    full,
+    re.S,
     )
-
+    
     if m:
         firma = m.group(1).strip()
         person = m.group(2).strip()
-
+    
         data["MANDANT_NAME"] = firma
         data["MANDANT_ANREDE"] = "Herr"
         data["MANDANT_VOLLNAME"] = person
-
-        teile = person.split()
+    
+        teile = person.split(maxsplit=1)
+    
         data["MANDANT_VORNAME"] = teile[0]
-        data["MANDANT_NACHNAME"] = " ".join(teile[1:])
+        data["MANDANT_NACHNAME"] = teile[1]
 
     # Vorsteuer
     data["VORSTEUERBERECHTIGUNG"] = ""
