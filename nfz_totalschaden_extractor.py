@@ -37,9 +37,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         full,
     )
 
-    person = _search(
-        r"Name\s*\n.+?\nHerr\s+([^\n]+)",
-        full,
+    person = _search(r"Herr\s+([A-ZÄÖÜa-zäöü][^\n]+)", full)
     )
 
     data["MANDANT_FIRMA"] = firma
@@ -115,7 +113,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     )
 
     data["KENNZEICHEN_MANDANT"] = _search(
-        r"Kennzeichen\s*\n([A-Z]{1,4}\s+[A-Z]{1,3}\s+\d+)",
+        r"Kennzeichen\s*\n([A-Z]{1,4}[:\s]+[A-Z]{1,3}\s+\d+)",
         full,
     )
 
@@ -126,7 +124,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # ---------------------------------------------------
 
     data["VORSTEUERABZUG_RAW"] = _search(
-        r"Vorsteuerabzug\s*\n(Ja|Nein)",
+        r"Vorsteuerabzug\s*[\n\s]+(Ja|Nein)",
         full,
     )
 
@@ -137,14 +135,14 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     data["REPARATURKOSTEN_NETTO"] = gx._extract_money(
         full,
         [
-            r"Reparaturkosten ohne MwSt\.\s*([0-9\., ]+€?)",
+            r"Reparaturkosten ohne MwSt\.[\s\n]*([0-9\., ]+€?)",
         ],
     )
 
     data["REPARATURKOSTEN_BRUTTO"] = gx._extract_money(
         full,
         [
-            r"Schadenhöhe inkl\. MwSt\.\s*([0-9\., ]+€?)",
+            r"Schadenhöhe inkl\. MwSt\.[\s\n]*([0-9\., ]+€?)",
         ],
     )
 
@@ -158,7 +156,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     data["RESTWERT"] = gx._extract_money(
         full,
         [
-            r"Restwert:\s*([0-9\., ]+€?)",
+            r"Restwert:\s*([\d\.]+,\d{2}\s*€)",
         ],
     )
 
