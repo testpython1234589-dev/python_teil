@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Dict, Any
+import re
 
 import gutachten_extractor as gx
 
@@ -8,19 +9,45 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     full = "\n".join(pages)
     data = {}
 
-    raw_name = gx._search_first(
+    # Versicherung
+    data["VERSICHERUNG"] = gx._search_first(
         full,
         [
-            r"Anspruchsteller\s+(.+?)\nHerr\b",
-            r"Anspruchsteller\s+(.+?)\n(?:Straße|PLZ Ort)",
+            r"Versicherter\s+(.+?)\s+VIN",
         ],
     )
 
-    anrede, clean_name = gx._cleanup_name(raw_name)
+    # Fahrzeugtyp
+    data["FAHRZEUGTYP"] = gx._search_first(
+        full,
+        [
+            r"Hersteller Modell\s*\n(.+?)\n",
+        ],
+    )
 
-    data["MANDANT_ANREDE"] = anrede
-    data["MANDANT_NAME"] = clean_name
+    # Mandant
+    m = re.search(
+        r"Anspruchsteller\s*\n(.+?)\nHerr\s+(.+?)\n",
+        full,
+        re.S,
+    )
 
+    if m:
+        firma = m.group(1).strip()
+        person = m.group(2).strip()
+
+        data["MANDANT_NAME"] = firma
+        data["MANDANT_ANREDE"] = "Herr"
+        data["MANDANT_VOLLNAME"] = person
+
+        teile = person.split()
+        data["MANDANT_VORNAME"] = teile[0]
+        data["MANDANT_NACHNAME"] = " ".join(teile[1:])
+
+    # Vorsteuer
+    data["VORSTEUERBERECHTIGUNG"] = ""
+
+    # Reparaturkosten
     data["REPARATURKOSTEN"] = gx._extract_money(
         full,
         [
@@ -28,6 +55,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
+    # Wiederbeschaffungswert
     data["WBW"] = gx._extract_money(
         full,
         [
@@ -35,6 +63,9 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
+    # Restwert
     data["RESTWERT"] = gx._extract_restwert_robust(full)
+
+    data["_PARSER"] = "nfz_totalschaden"
 
     return data
