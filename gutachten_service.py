@@ -9,7 +9,11 @@ import nfz_standard_extractor as ns
 import nfz_totalschaden_extractor as nt
 
 
-def extract_from_pdf_bytes(pdf_bytes: bytes, gutachter_key: str) -> Dict[str, Any]:
+def extract_from_pdf_bytes(
+    pdf_bytes: bytes,
+    gutachter_key: str,
+    template_label: str,
+) -> Dict[str, Any]:
 
     if gutachter_key == "schnur":
         text = gx.pdf_to_text(pdf_bytes)
