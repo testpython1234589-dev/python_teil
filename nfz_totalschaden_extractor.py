@@ -38,7 +38,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     )
 
     person = _search(r"Herr\s+([A-ZÄÖÜa-zäöü][^\n]+)", full)
-    )
+    
 
     data["MANDANT_FIRMA"] = firma
     data["MANDANT_ANREDE"] = "Herr"
