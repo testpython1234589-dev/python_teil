@@ -31,21 +31,20 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # ---------------------------------------------------
     # Anspruchsteller
     # ---------------------------------------------------
-
-    m = re.search(
-        r"Anspruchsteller\s*\n(.+?)\nHerr\s+(.+?)\n",
+    
+     m = re.search(
+        r"Anspruchsteller\s*\n(.+?)\n(Herr|Frau)\s+(.+?)\n",
         full,
         re.S,
-    )
+     )
     
     if m:
         firma = m.group(1).strip()
-        person = m.group(2).strip()
+        anrede = m.group(2).strip()
+        person = m.group(3).strip()
     
-        data["MANDANT_NAME"] = firma
         data["MANDANT_FIRMA"] = firma
-    
-        data["MANDANT_ANREDE"] = "Herr"
+        data["MANDANT_ANREDE"] = anrede
         data["MANDANT_VOLLNAME"] = person
     
         teile = person.split()
@@ -53,7 +52,6 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         if teile:
             data["MANDANT_VORNAME"] = teile[0]
             data["MANDANT_NACHNAME"] = " ".join(teile[1:])
-
     # ---------------------------------------------------
     # Unfall
     # ---------------------------------------------------
