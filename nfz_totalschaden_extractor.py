@@ -96,7 +96,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         r"Name\s+(.+?)\n"
         r"Straße\s+(.+?)\n"
         r"PLZ\s+Ort\s+(.+?)\n"
-        r"Schadennummer\s+(.+?)\n",
+        r"Schadennummer\s+([A-Z0-9 ]+)",
         seite5,
         re.S | re.I,
     )
