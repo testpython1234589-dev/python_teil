@@ -129,13 +129,13 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         full,
     )
 
-    data["KENNZEICHEN"] = data.get(
-        "KENNZEICHEN_MANDANT",
-        "",
+    data["KENNZEICHEN"] =_search(
+        r"(?:Amtliches Kennzeichen|Kennzeichen)\s+([A-ZÄÖÜ\- ]+\d+)",
+        full,
     )
 
     data["KENNZEICHEN_GEGNER"] = _search(
-        r"(?:Amtliches Kennzeichen|Kennzeichen)\s+([A-ZÄÖÜ\- ]+\d+)",
+        r"Unfallgegner.*?Kennzeichen\s+([A-ZÄÖÜ\- ]+\d+)",
         full,
     )
 
