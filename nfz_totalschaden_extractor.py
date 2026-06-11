@@ -31,10 +31,11 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # ANSPRUCHSTELLER (Firma + Geschäftsführer)
     # ===================================================
 
+    
     m = re.search(
-        r"Anspruchsteller.*?Name\s*\n(.+?)\n(Herr|Frau)\s+(.+?)\n",
-        full,
-        re.S | re.I,
+    r"Anspruchsteller\s+Name\s+(.+?)\n(Herr|Frau)\s+(.+?)\n",
+    full,
+    re.S,
     )
 
     if m:
@@ -58,29 +59,28 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # ADRESSE ANSPRUCHSTELLER (Seite 5)
     # ===================================================
 
-    adr = re.search(
-        r"Anspruchsteller.*?"
-        r"Straße\s*\n(.+?)\n"
-        r"PLZ\s*Ort\s*\n(.+?)\n",
-        full,
-        re.S | re.I,
+    m = re.search(
+    r"Anspruchsteller.*?"
+    r"Straße\s+(.+?)\n"
+    r"PLZ Ort\s+(.+?)\n",
+    full,
+    re.S,
     )
 
-    if adr:
-        data["MANDANT_STRASSE"] = adr.group(1).strip()
-        data["MANDANT_PLZ_ORT"] = adr.group(2).strip()
-
+    if m:
+        data["MANDANT_STRASSE"] = m.group(1).strip()
+        data["MANDANT_PLZ_ORT"] = m.group(2).strip()
     # ===================================================
     # UNFALL
     # ===================================================
 
     data["UNFALL_DATUM"] = _search(
-        r"Unfall.*?Datum\s*\n([0-9\.]{10})",
+        r"Unfall\s+Datum\s*[: ]+\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4})",
         full,
     )
 
     data["UNFALL_ORT"] = _search(
-        r"Unfall.*?Ort\s*\n(.+?)\n",
+        r"Ort\s+([^\n]+)",
         full,
     )
 
@@ -89,13 +89,22 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # ===================================================
 
     vers = re.search(
-        r"Versicherung.*?"
+        r"Name\s+(.+?Versicherung.+)"
         r"Name\s*\n(.+?)\n"
         r"Straße\s*\n(.+?)\n"
         r"PLZ\s*Ort\s*\n(.+?)\n",
         full,
         re.S | re.I,
     )
+    m = re.search(
+    r"Versicherung.*?Straße\s+(.+?)\nPLZ Ort\s+(.+?)\n",
+    full,
+    re.S,
+    )
+
+    if m:
+    data["VER_STRASSE"] = m.group(1).strip()
+    data["VER_ORT"] = m.group(2).strip()
 
     if vers:
         data["VERSICHERUNG"] = vers.group(1).strip()
@@ -103,7 +112,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         data["VER_ORT"] = vers.group(3).strip()
 
     data["SCHADENSNUMMER"] = _search(
-        r"Schadennummer\s*\n(.+?)\n",
+        r"Schadennummer\s*[: ]+\s*([A-Z0-9 ]+)",
         full,
     )
 
@@ -127,7 +136,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     )
 
     data["KENNZEICHEN_GEGNER"] = _search(
-        r"Unfallgegner.*?Kennzeichen\s*\n(.+?)\n",
+        r"(?:Amtliches Kennzeichen|Kennzeichen)\s+([A-ZÄÖÜ\- ]+\d+)",
         full,
     )
 
@@ -168,16 +177,16 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     )
 
     data["WBW"] = gx._extract_money(
-        full,
-        [
-            r"Wiederbeschaffungswert.*?([0-9\., ]+€)",
-        ],
+    seite4,
+    [
+        r"Wiederbeschaffungswert.*?([0-9]+\.[0-9]{3},[0-9]{2}\s*€)"
+    ],
     )
-
+    
     data["RESTWERT"] = gx._extract_money(
         full,
         [
-            r"Restwert.*?([0-9\., ]+€)",
+           r"Restwert.*?([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€)",
         ],
     )
 
