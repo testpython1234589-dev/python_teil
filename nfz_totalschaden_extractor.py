@@ -110,10 +110,16 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         data["VER_STRASSE"] = vers.group(2).strip()
         data["VER_ORT"] = vers.group(3).strip()
 
-    data["SCHADENSNUMMER"] = _search(
-        r"Schadennummer\s*[: ]+\s*([A-Z0-9 ]+)",
-        full,
+    m = re.search(
+        r"Schadennummer\s+([A-Z0-9 ]+)",
+        seite5,
+        re.I,
     )
+    
+    if m:
+        data["SCHADENSNUMMER"] = m.group(1).strip()
+    else:
+        data["SCHADENSNUMMER"] = ""
 
     # ===================================================
     # FAHRZEUG
@@ -161,19 +167,6 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # FAHRZEUGWERT (Seite 4)
     # ===================================================
 
-    data["REPARATURKOSTEN_NETTO"] = gx._extract_money(
-        full,
-        [
-            r"Reparaturkosten ohne MwSt\.\s*([0-9\., ]+€?)",
-        ],
-    )
-
-    data["REPARATURKOSTEN_BRUTTO"] = gx._extract_money(
-        full,
-        [
-            r"Schadenhöhe inkl\. MwSt\.\s*([0-9\., ]+€?)",
-        ],
-    )
 
     data["WBW"] = gx._extract_money(
     seite4,
