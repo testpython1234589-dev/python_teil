@@ -95,7 +95,8 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         r"Versicherung.*?"
         r"Name\s+(.+?)\n"
         r"Straße\s+(.+?)\n"
-        r"PLZ\s+Ort\s+(.+?)\n",
+        r"PLZ\s+Ort\s+(.+?)\n"
+        r"Schadennummer\s+(.+?)\n",
         seite5,
         re.S | re.I,
     )
@@ -104,22 +105,9 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         data["VERSICHERUNG"] = vers.group(1).strip()
         data["VER_STRASSE"] = vers.group(2).strip()
         data["VER_ORT"] = vers.group(3).strip()
+        data["SCHADENSNUMMER"] = " ".join(vers.group(4).split())
 
-    if vers:
-        data["VERSICHERUNG"] = vers.group(1).strip()
-        data["VER_STRASSE"] = vers.group(2).strip()
-        data["VER_ORT"] = vers.group(3).strip()
-
-    m = re.search(
-        r"Schadennummer\s+([A-Z0-9 ]+)",
-        seite5,
-        re.I,
-    )
     
-    if m:
-        data["SCHADENSNUMMER"] = m.group(1).strip()
-    else:
-        data["SCHADENSNUMMER"] = ""
 
     # ===================================================
     # FAHRZEUG
