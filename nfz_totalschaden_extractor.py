@@ -16,145 +16,185 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     full = "\n".join(pages)
 
     data: Dict[str, Any] = {}
-
     data["_PARSER"] = "nfz_totalschaden"
 
-    # ---------------------------------------------------
+    # ===================================================
     # AKTENZEICHEN
-    # ---------------------------------------------------
+    # ===================================================
 
     data["AKTENZEICHEN"] = _search(
         r"Aktenzeichen\s*\n([A-Z0-9\-\/]+)",
         full,
     )
 
-    # ---------------------------------------------------
-    # Anspruchsteller
-    # ---------------------------------------------------
+    # ===================================================
+    # ANSPRUCHSTELLER (Firma + Geschäftsführer)
+    # ===================================================
+
     m = re.search(
-        r"Anspruchsteller\s*\n(.+?)\n(Herr|Frau)\s+(.+?)\n",
+        r"Anspruchsteller.*?Name\s*\n(.+?)\n(Herr|Frau)\s+(.+?)\n",
         full,
-        re.S,
-     )
-    
+        re.S | re.I,
+    )
+
     if m:
         firma = m.group(1).strip()
         anrede = m.group(2).strip()
         person = m.group(3).strip()
-    
-        data["MANDANT_FIRMA"] = firma
+
         data["MANDANT_ANREDE"] = anrede
-        data["MANDANT_VOLLNAME"] = person
-    
-        teile = person.split()
-    
-        if teile:
-            data["MANDANT_VORNAME"] = teile[0]
-            data["MANDANT_NACHNAME"] = " ".join(teile[1:])
-    # ---------------------------------------------------
-    # Unfall
-    # ---------------------------------------------------
+
+        # Geschäftsführerlogik
+        data["MANDANT_VORNAME"] = person
+        data["MANDANT_NACHNAME"] = firma
+        data["MANDANT_NAME"] = firma
+        data["MANDANT_FIRMA"] = firma
+
+        data["MANDANT_VOLLNAME"] = (
+            f"{person} Geschäftsführer von {firma}"
+        )
+
+    # ===================================================
+    # ADRESSE ANSPRUCHSTELLER (Seite 5)
+    # ===================================================
+
+    adr = re.search(
+        r"Anspruchsteller.*?"
+        r"Straße\s*\n(.+?)\n"
+        r"PLZ\s*Ort\s*\n(.+?)\n",
+        full,
+        re.S | re.I,
+    )
+
+    if adr:
+        data["MANDANT_STRASSE"] = adr.group(1).strip()
+        data["MANDANT_PLZ_ORT"] = adr.group(2).strip()
+
+    # ===================================================
+    # UNFALL
+    # ===================================================
 
     data["UNFALL_DATUM"] = _search(
-        r"Unfall Datum\s*\n([0-9\.]+)",
+        r"Unfall.*?Datum\s*\n([0-9\.]{10})",
         full,
     )
 
     data["UNFALL_ORT"] = _search(
-        r"Ort\s*\n(.+?)\nUnfallgegner",
+        r"Unfall.*?Ort\s*\n(.+?)\n",
         full,
     )
 
-    # ---------------------------------------------------
-    # Gegner
-    # ---------------------------------------------------
+    # ===================================================
+    # VERSICHERUNG
+    # ===================================================
 
-    data["KENNZEICHEN_GEGNER"] = _search(
-        r"Kennzeichen\s*\n([A-ZÄÖÜ0-9\-\s]+)",
+    vers = re.search(
+        r"Versicherung.*?"
+        r"Name\s*\n(.+?)\n"
+        r"Straße\s*\n(.+?)\n"
+        r"PLZ\s*Ort\s*\n(.+?)\n",
         full,
+        re.S | re.I,
     )
 
-    # ---------------------------------------------------
-    # Versicherung
-    # ---------------------------------------------------
-
-    data["VERSICHERUNG"] = _search(
-        r"Versicherung\s*\n(.+?)\n",
-        full,
-    )
+    if vers:
+        data["VERSICHERUNG"] = vers.group(1).strip()
+        data["VER_STRASSE"] = vers.group(2).strip()
+        data["VER_ORT"] = vers.group(3).strip()
 
     data["SCHADENSNUMMER"] = _search(
         r"Schadennummer\s*\n(.+?)\n",
         full,
     )
 
-    # ---------------------------------------------------
-    # Fahrzeug
-    # ---------------------------------------------------
+    # ===================================================
+    # FAHRZEUG
+    # ===================================================
 
     data["FAHRZEUGTYP"] = _search(
-        r"Hersteller Modell\s*\n(.+?)\n",
+        r"Hersteller\s*Modell\s*\n(.+?)\n",
         full,
     )
 
     data["KENNZEICHEN_MANDANT"] = _search(
-        r"Kennzeichen\s*\n([A-Z]{1,4}[:\s]+[A-Z]{1,3}\s+\d+)",
+        r"Eigenes\s+Kennzeichen\s*\n(.+?)\n",
         full,
     )
 
-    data["KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
+    data["KENNZEICHEN"] = data.get(
+        "KENNZEICHEN_MANDANT",
+        "",
+    )
 
-    # ---------------------------------------------------
-    # Vorsteuer
-    # ---------------------------------------------------
+    data["KENNZEICHEN_GEGNER"] = _search(
+        r"Unfallgegner.*?Kennzeichen\s*\n(.+?)\n",
+        full,
+    )
+
+    # ===================================================
+    # VORSTEUER
+    # ===================================================
 
     data["VORSTEUERABZUG_RAW"] = _search(
-        r"Vorsteuerabzug\s*[\n\s]+(Ja|Nein)",
+        r"Vorsteuerabzug.*?(Ja|Nein)",
         full,
     )
 
-    # ---------------------------------------------------
-    # Werte Totalschaden
-    # ---------------------------------------------------
+    if data["VORSTEUERABZUG_RAW"].lower() == "ja":
+        data["VORSTEUERBERECHTIGUNG"] = (
+            "vorsteuerabzugsberechtigt"
+        )
+    elif data["VORSTEUERABZUG_RAW"].lower() == "nein":
+        data["VORSTEUERBERECHTIGUNG"] = (
+            "nicht vorsteuerabzugsberechtigt"
+        )
+
+    # ===================================================
+    # FAHRZEUGWERT (Seite 4)
+    # ===================================================
 
     data["REPARATURKOSTEN_NETTO"] = gx._extract_money(
         full,
         [
-            r"Reparaturkosten ohne MwSt\.[\s\n]*([0-9\., ]+€?)",
+            r"Reparaturkosten ohne MwSt\.\s*([0-9\., ]+€?)",
         ],
     )
 
     data["REPARATURKOSTEN_BRUTTO"] = gx._extract_money(
         full,
         [
-            r"Schadenhöhe inkl\. MwSt\.[\s\n]*([0-9\., ]+€?)",
+            r"Schadenhöhe inkl\. MwSt\.\s*([0-9\., ]+€?)",
         ],
     )
 
     data["WBW"] = gx._extract_money(
         full,
         [
-            r"Wiederbeschaffungswert.*?\)\s*([0-9\., ]+€?)",
+            r"Wiederbeschaffungswert.*?([0-9\., ]+€)",
         ],
     )
 
     data["RESTWERT"] = gx._extract_money(
         full,
         [
-            r"Restwert:\s*([\d\.]+,\d{2}\s*€)",
+            r"Restwert.*?([0-9\., ]+€)",
         ],
     )
+
+    # ===================================================
+    # SONDERKOSTEN
+    # ===================================================
 
     data["MELDUNGSKOSTEN"] = gx._extract_money(
         full,
         [
-            r"Ab- & Anmeldegebühren\s*([0-9\., ]+€?)",
+            r"Ab-\s*&\s*Anmeldegebühren\s*([0-9\., ]+€?)",
         ],
     )
 
-    # ---------------------------------------------------
-    # Gutachterkosten
-    # ---------------------------------------------------
+    # ===================================================
+    # GUTACHTERKOSTEN
+    # ===================================================
 
     data["GUTACHTERKOSTEN_NETTO"] = gx._extract_money(
         full,
@@ -170,12 +210,12 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # ---------------------------------------------------
-    # Schadenhergang
-    # ---------------------------------------------------
+    # ===================================================
+    # SCHADENHERGANG
+    # ===================================================
 
     data["SCHADENHERGANG"] = _search(
-        r"Nach Angaben.*?(?=\n\n)",
+        r"Nach Angaben des Anspruchstellers(.*?)(?:\n\n|\Z)",
         full,
     )
 
