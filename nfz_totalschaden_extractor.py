@@ -32,7 +32,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # Anspruchsteller
     # ---------------------------------------------------
 
-           m = re.search(
+    m = re.search(
         r"Anspruchsteller\s*\n(.+?)\nHerr\s+(.+?)\n",
         full,
         re.S,
