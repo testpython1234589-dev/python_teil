@@ -14,6 +14,9 @@ def _search(pattern: str, text: str) -> str:
 def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
 
     full = "\n".join(pages)
+    seite4 = pages[3] if len(pages) >= 4 else full
+    seite5 = pages[4] if len(pages) >= 5 else full
+    seite8 = pages[7] if len(pages) >= 8 else full
 
     data: Dict[str, Any] = {}
     data["_PARSER"] = "nfz_totalschaden"
@@ -89,22 +92,18 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # ===================================================
 
     vers = re.search(
-        r"Name\s+(.+?Versicherung.+)"
-        r"Name\s*\n(.+?)\n"
-        r"Straße\s*\n(.+?)\n"
-        r"PLZ\s*Ort\s*\n(.+?)\n",
-        full,
+        r"Versicherung.*?"
+        r"Name\s+(.+?)\n"
+        r"Straße\s+(.+?)\n"
+        r"PLZ\s+Ort\s+(.+?)\n",
+        seite5,
         re.S | re.I,
     )
-    m = re.search(
-    r"Versicherung.*?Straße\s+(.+?)\nPLZ Ort\s+(.+?)\n",
-    full,
-    re.S,
-    )
-
-    if m:
-    data["VER_STRASSE"] = m.group(1).strip()
-    data["VER_ORT"] = m.group(2).strip()
+    
+    if vers:
+        data["VERSICHERUNG"] = vers.group(1).strip()
+        data["VER_STRASSE"] = vers.group(2).strip()
+        data["VER_ORT"] = vers.group(3).strip()
 
     if vers:
         data["VERSICHERUNG"] = vers.group(1).strip()
