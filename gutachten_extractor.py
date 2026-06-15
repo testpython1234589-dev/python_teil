@@ -831,11 +831,17 @@ def extract_all(text: str, pdf_source: str | Path | bytes | None = None) -> Dict
 def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     d: Dict[str, Any] = {}
 
-    vorname, nachname, titel = _split_name(str(extracted.get("MANDANT_NAME", "")))
-    d["MANDANT_VORNAME"] = vorname
-    d["MANDANT_NACHNAME"] = nachname
-    d["MANDANT_TITEL"] = titel
-    d["MANDANT_VOLLNAME"] = " ".join(x for x in [titel, vorname, nachname] if x).strip()
+    if extracted.get("_PARSER") == "nfz_totalschaden" and extracted.get("MANDANT_FIRMA"):
+        d["MANDANT_VORNAME"] = str(extracted.get("MANDANT_VORNAME", "") or "")
+        d["MANDANT_NACHNAME"] = str(extracted.get("MANDANT_NACHNAME", "") or "")
+        d["MANDANT_TITEL"] = ""
+        d["MANDANT_VOLLNAME"] = str(extracted.get("MANDANT_VOLLNAME", "") or "")
+    else:
+        vorname, nachname, titel = _split_name(str(extracted.get("MANDANT_NAME", "")))
+        d["MANDANT_VORNAME"] = vorname
+        d["MANDANT_NACHNAME"] = nachname
+        d["MANDANT_TITEL"] = titel
+        d["MANDANT_VOLLNAME"] = " ".join(x for x in [titel, vorname, nachname] if x).strip()
 
     gender = _gender_fields(str(extracted.get("MANDANT_ANREDE", "")))
     d.update(gender)
@@ -957,10 +963,14 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     else:
         d["WERTMINDERUNG_NAME"] = ""
         d["WERTMINDERUNG_BETRAG"] = ""
-
+        
     schadensnummer = str(extracted.get("SCHADENSNUMMER", "")).strip()
-    m = re.search(r"[A-Z0-9\/\-]{6,}", schadensnummer)
-    d["SCHADENSNUMMER"] = m.group(0) if m else ""
+    
+    if extracted.get("_PARSER") == "nfz_totalschaden":
+        d["SCHADENSNUMMER"] = " ".join(schadensnummer.split())
+    else:
+        m = re.search(r"[A-Z0-9\/\-]{6,}", schadensnummer)
+        d["SCHADENSNUMMER"] = m.group(0) if m else ""
 
     return d
 
