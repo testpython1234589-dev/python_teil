@@ -985,7 +985,7 @@ def extract_from_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
             "MANDANT_VOLLNAME",
             "MANDANT_NAME",
             "MANDANT_FIRMA",
-            "SCHADENNUMMER",
+            "SCHADENSNUMMER",
             "VERSICHERUNG",
             "VER_STRASSE",
             "VER_ORT",
