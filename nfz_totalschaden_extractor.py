@@ -412,14 +412,14 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         # GUTACHTERKOSTEN
         # ===================================================
     
-        data["GUTACHTERKOSTEN_NETTO"] = gx._extract_money(
+    data["GUTACHTERKOSTEN_NETTO"] = gx._extract_money(
             seite_rechnung,
             [
                 r"Gesamtbetrag ohne MwSt\.\s*([0-9\., ]+€?)",
             ],
         )
     
-        data["GUTACHTERKOSTEN_BRUTTO"] = gx._extract_money(
+    data["GUTACHTERKOSTEN_BRUTTO"] = gx._extract_money(
             seite_rechnung,
             [
                 r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+€?)",
