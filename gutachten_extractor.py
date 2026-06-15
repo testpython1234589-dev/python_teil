@@ -965,6 +965,28 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     return d
 
 
+#aus NFZ Totalschden wird Schadennr. nicht von Derive fields überschieben
+
+def _extract_nfz_schadensnummer_final(text: str) -> str:
+    flat = " ".join(str(text or "").split())
+
+    patterns = [
+        # Beteiligtenblock:
+        # Schadennummer SD2 0003 5413 44 T01
+        r"Schadennummer\s+([A-Z0-9]{2,5}\s+[A-Z0-9]{3,6}\s+[A-Z0-9]{3,6}\s+[A-Z0-9]{2,4}\s+[A-Z0-9]{2,5})",
+
+        # Rechnung:
+        # Schaden-Nr. Versicherungs-Nr. SD2 0003 5413 44 T01 K 576...
+        r"Schaden-Nr\.\s+Versicherungs-Nr\.\s+([A-Z0-9]{2,5}\s+[A-Z0-9]{3,6}\s+[A-Z0-9]{3,6}\s+[A-Z0-9]{2,4}\s+[A-Z0-9]{2,5})\s+K\s+\d",
+    ]
+
+    for pattern in patterns:
+        m = re.search(pattern, flat, re.I)
+        if m:
+            return " ".join(m.group(1).split())
+
+    return ""
+
 
 def extract_from_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
     text = pdf_to_text(pdf_bytes)
@@ -999,6 +1021,12 @@ def extract_from_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
 
         # Alias zusätzlich sauber setzen
         result["VRSICHERUNG"] = result.get("VERSICHERUNG", "")
+
+        # Schadennummer ganz am Ende aus Rohtext setzen,
+        # weil derive_fields() Nummern mit Leerzeichen sonst löscht.
+        nfz_schadensnummer = _extract_nfz_schadensnummer_final(text)
+        if nfz_schadensnummer:
+            result["SCHADENSNUMMER"] = nfz_schadensnummer
 
     return result
 
