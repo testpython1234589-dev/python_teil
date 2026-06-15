@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Dict, Any
+from typing import Dict, Any, Iterable
 import re
 
 import gutachten_extractor as gx
 
 
-def _search(pattern: str, text: str) -> str:
-    m = re.search(pattern, text or "", re.S | re.I)
+def _search(pattern: str, text: str, flags: int = re.S | re.I) -> str:
+    m = re.search(pattern, text or "", flags)
     return m.group(1).strip() if m else ""
 
 
@@ -15,14 +15,52 @@ def _one_line(value: str) -> str:
     return " ".join((value or "").split())
 
 
-def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
+def _find_page(
+    pages,
+    needles: Iterable[str],
+    excludes: Iterable[str] = (),
+) -> str:
+    for page in pages:
+        page_lower = page.lower()
 
+        if all(n.lower() in page_lower for n in needles) and not any(
+            e.lower() in page_lower for e in excludes
+        ):
+            return page
+
+    return ""
+
+
+def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     full = "\n".join(pages)
 
-    seite4 = pages[3] if len(pages) >= 4 else full
-    seite5 = pages[4] if len(pages) >= 5 else full
-    seite7 = pages[6] if len(pages) >= 7 else full
-    seite8 = pages[7] if len(pages) >= 8 else full
+    seite_rechnung = _find_page(
+        pages,
+        ["Rechnung Nr.", "Gesamtbetrag ohne MwSt."],
+    ) or (pages[0] if len(pages) >= 1 else full)
+
+    seite4 = _find_page(
+        pages,
+        ["Zusammenfassung", "Totalschaden"],
+        excludes=["Inhaltsverzeichnis"],
+    ) or (pages[3] if len(pages) >= 4 else full)
+
+    seite5 = _find_page(
+        pages,
+        ["Beteiligte, Besichtigungen & Auftrag", "Vorsteuerabzug"],
+    ) or (pages[4] if len(pages) >= 5 else full)
+
+    seite_fahrzeug = _find_page(
+        pages,
+        ["Fahrzeugdaten", "Amtliches Kennzeichen"],
+        excludes=["Inhaltsverzeichnis"],
+    ) or (pages[6] if len(pages) >= 7 else full)
+
+    seite_schadenhergang = _find_page(
+        pages,
+        ["Schadenhergang", "Nach Angaben"],
+        excludes=["Inhaltsverzeichnis"],
+    ) or full
 
     data: Dict[str, Any] = {}
     data["_PARSER"] = "nfz_totalschaden"
@@ -43,34 +81,31 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         )
 
     # ===================================================
-    # ANSPRUCHSTELLER (Firma + Geschäftsführer)
+    # ANSPRUCHSTELLER / FIRMA / GESCHÄFTSFÜHRER
     # ===================================================
 
     m = re.search(
         r"(?:Anspruchsteller\s+)?Name\s+(.+?)\n"
         r"(Herrn?|Herr|Frau)\s+(.+?)\n"
         r"Straße\s+(.+?)\n"
-        r"PLZ Ort\s+(.+?)\n",
+        r"PLZ Ort\s+(.+?)(?:\nAnspruchsteller|\nVorsteuerabzug|\n)",
         seite5,
         re.S | re.I,
     )
 
     if m:
         firma = m.group(1).strip()
-        anrede_raw = m.group(2).strip()
+        anrede_raw = m.group(2).strip().lower()
         person = m.group(3).strip()
 
-        if anrede_raw.lower().startswith("frau"):
-            anrede = "Frau"
-        else:
-            anrede = "Herr"
-
-        data["MANDANT_ANREDE"] = anrede
+        data["MANDANT_ANREDE"] = "Frau" if anrede_raw.startswith("frau") else "Herr"
 
         data["MANDANT_NAME"] = firma
         data["MANDANT_FIRMA"] = firma
 
-        # Deine gewünschte Logik:
+        # Gewünschte Word-Logik:
+        # {MANDANT_VORNAME} {MANDANT_NACHNAME}
+        # = Berthold Richter Geschäftsführer von Kraftverkehr Leipzig GmbH
         data["MANDANT_VORNAME"] = f"{person} Geschäftsführer von"
         data["MANDANT_NACHNAME"] = firma
         data["MANDANT_VOLLNAME"] = f"{person} Geschäftsführer von {firma}"
@@ -87,10 +122,14 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         seite5,
     )
 
-    # Nimmt alles zwischen "Unfall Datum ..." und "Besichtigung Datum ..."
-    # und entfernt danach das störende "Ort"-Label.
+    # Wichtig:
+    # Der Unfallort ist im PDF nicht immer stabil als "Ort\nWert".
+    # Deshalb: Block zwischen Unfall Datum und Besichtigung nehmen,
+    # dann das Label "Ort" entfernen.
     unfall_block = _search(
-        r"Unfall\s+Datum\s+[0-9]{2}\.[0-9]{2}\.[0-9]{4}\s*(.*?)(?:Besichtigung\s+Datum|Datum\s+[0-9]{2}\.[0-9]{2}\.[0-9]{4}\s+-|\Z)",
+        r"Unfall\s+Datum\s+[0-9]{2}\.[0-9]{2}\.[0-9]{4}\s*"
+        r"(.*?)"
+        r"(?:\nDatum\s+[0-9]{2}\.[0-9]{2}\.[0-9]{4}\s*-|\nBesichtigung\s+Datum|\bBesichtigung\s+Datum|\nBesichtigung\b|\Z)",
         seite5,
     )
 
@@ -101,38 +140,58 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # VERSICHERUNG
     # ===================================================
 
-    # Erst Versicherungsblock isolieren: ab Gegner-Kennzeichen bis Auftrag.
+    # Erst nur den Versicherungsbereich isolieren:
+    # nach Unfallgegner/Kennzeichen bis Auftrag bzw. Datum/Erteilt.
     vers_block = _search(
-        r"Unfallgegner.*?Kennzeichen\s+.+?\n(.*?)(?:\nAuftrag|\nDatum\s+[0-9]{2}\.[0-9]{2}\.[0-9]{4}\nErteilt|\Z)",
+        r"Unfallgegner\b.*?"
+        r"Kennzeichen\s+[^\n]+\n"
+        r"(.*?)"
+        r"(?:\nAuftrag\b|\nDatum\s+[0-9]{2}\.[0-9]{2}\.[0-9]{4}\s*\nErteilt|\Z)",
         seite5,
     )
 
+    # Fallback, falls PDF-Text anders sortiert ist.
     if not vers_block:
-        vers_block = seite5
+        vers_block = _search(
+            r"((?:Versicherung\s+)?Name\s+[^\n]+\n"
+            r"Straße\s+[^\n]+\n"
+            r"PLZ\s+Ort\s+[^\n]+\n"
+            r"Telefon\s+[^\n]*\n"
+            r"E-Mail\s+[^\n]*\n"
+            r"Versicherungs-Nr\.\s+[^\n]+"
+            r"(?:\nVersicherung)?\n"
+            r"Schadennummer\s+[^\n]+)",
+            seite5,
+        )
 
     data["VERSICHERUNG"] = _search(
-        r"(?:Versicherung\s+)?Name\s+(.+?)\n",
+        r"(?:^|\n)(?:Versicherung\s+)?Name\s+([^\n]+)",
         vers_block,
+        re.I | re.M,
     )
 
     data["VER_STRASSE"] = _search(
-        r"Straße\s+(.+?)\n",
+        r"(?:^|\n)Straße\s+([^\n]+)",
         vers_block,
+        re.I | re.M,
     )
 
     data["VER_ORT"] = _search(
-        r"PLZ\s+Ort\s+(.+?)\n",
+        r"(?:^|\n)PLZ\s+Ort\s+([^\n]+)",
         vers_block,
+        re.I | re.M,
     )
 
     data["VERSICHERUNGSNUMMER"] = _search(
-        r"Versicherungs-Nr\.\s+(.+?)\n",
+        r"Versicherungs-Nr\.\s+([^\n]+)",
         vers_block,
+        re.I | re.M,
     )
 
     data["SCHADENSNUMMER"] = _search(
-        r"Schadennummer\s+(.+?)(?:\n|$)",
+        r"Schadennummer\s+([^\n]+)",
         vers_block,
+        re.I | re.M,
     )
 
     data["SCHADENSNUMMER"] = _one_line(data["SCHADENSNUMMER"])
@@ -141,43 +200,64 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # FAHRZEUG
     # ===================================================
 
-    hersteller = _search(
-        r"Hersteller\s+([^\n]+)",
-        seite7,
-    )
-
-    modell = _search(
-        r"Modell(?:/Haupttyp)?\s+([^\n]+)",
-        seite7,
-    )
-
-    data["FAHRZEUGTYP"] = _one_line(
-        " ".join(x for x in [hersteller, modell] if x)
-    )
-
+    # Wichtig:
+    # Nur auf der Fahrzeugdaten-Seite suchen, nicht auf full.
+    # Sonst springt Regex seitenübergreifend.
     data["KENNZEICHEN_MANDANT"] = _search(
-        r"Amtliches\s+Kennzeichen\s+([^\n]+)",
-        seite7,
+        r"^Amtliches Kennzeichen\s+([^\n]+)",
+        seite_fahrzeug,
+        re.I | re.M,
     )
 
     data["KENNZEICHEN_MANDANT"] = _one_line(data["KENNZEICHEN_MANDANT"])
-
     data["EIGENES_KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
     data["KENNZEICHEN"] = data["KENNZEICHEN_MANDANT"]
 
     data["KENNZEICHEN_GEGNER"] = _search(
-        r"Unfallgegner.*?Kennzeichen\s+([^\n]+)",
+        r"Unfallgegner\b.*?Kennzeichen\s+([^\n]+)",
         seite5,
+        re.S | re.I,
     )
 
     data["KENNZEICHEN_GEGNER"] = _one_line(data["KENNZEICHEN_GEGNER"])
+
+    hersteller = _search(
+        r"^Hersteller\s+([^\n]+)",
+        seite_fahrzeug,
+        re.I | re.M,
+    )
+
+    modell = _search(
+        r"^Modell(?:/Haupttyp)?\s+([^\n]+)",
+        seite_fahrzeug,
+        re.I | re.M,
+    )
+
+    # Fallback für Deckblatt:
+    if not hersteller:
+        hersteller = _search(
+            r"^Hersteller\s*\n([^\n]+)",
+            full,
+            re.I | re.M,
+        )
+
+    if not modell:
+        modell = _search(
+            r"^Modell\s*\n([^\n]+)",
+            full,
+            re.I | re.M,
+        )
+
+    data["FAHRZEUGTYP"] = _one_line(
+        " ".join(x for x in [hersteller, modell] if x)
+    )
 
     # ===================================================
     # VORSTEUER
     # ===================================================
 
     data["VORSTEUERABZUG_RAW"] = _search(
-        r"Vorsteuerabzug.*?(Ja|Nein)",
+        r"Vorsteuerabzug\s+(Ja|Nein)",
         seite5,
     )
 
@@ -189,7 +269,27 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         data["VORSTEUERBERECHTIGUNG"] = ""
 
     # ===================================================
-    # FAHRZEUGWERT (Seite 4)
+    # REPARATURKOSTEN / SCHADENHÖHE
+    # ===================================================
+
+    data["REPARATURKOSTEN_NETTO"] = gx._extract_money(
+        seite4,
+        [
+            r"Reparaturkosten ohne MwSt\.\s*([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
+            r"Schadenhöhe ohne MwSt\.\s*([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
+        ],
+    )
+
+    data["REPARATURKOSTEN_BRUTTO"] = gx._extract_money(
+        seite4,
+        [
+            r"Schadenhöhe inkl\. MwSt\.\s*\([^)]*\)\s*([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
+            r"Reparaturkosten inkl\. MwSt\.\s*\([^)]*\)\s*([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
+        ],
+    )
+
+    # ===================================================
+    # FAHRZEUGWERT
     # ===================================================
 
     data["WBW"] = gx._extract_money(
@@ -224,14 +324,14 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # ===================================================
 
     data["GUTACHTERKOSTEN_NETTO"] = gx._extract_money(
-        full,
+        seite_rechnung,
         [
             r"Gesamtbetrag ohne MwSt\.\s*([0-9\., ]+€?)",
         ],
     )
 
     data["GUTACHTERKOSTEN_BRUTTO"] = gx._extract_money(
-        full,
+        seite_rechnung,
         [
             r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+€?)",
         ],
@@ -242,10 +342,11 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # ===================================================
 
     data["SCHADENHERGANG"] = _search(
-        r"Schadenhergang\s+"
+        r"^Schadenhergang\s*\n?"
         r"(Nach Angaben .+?)"
         r"(?:\nAnstoß-/Schadenbereich|\nSchadenbeschreibung|\nPlausibilität|\Z)",
-        full,
+        seite_schadenhergang,
+        re.S | re.I | re.M,
     )
 
     data["SCHADENHERGANG"] = _one_line(data["SCHADENHERGANG"])
