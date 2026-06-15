@@ -341,50 +341,90 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
     # FAHRZEUGWERT
     # ===================================================
 
-    data["WBW"] = gx._extract_money(
+    # ===================================================
+# FAHRZEUGWERT
+# ===================================================
+# Logik:
+# Vorsteuerabzug Ja  -> netto / ohne MwSt.
+# Vorsteuerabzug Nein -> brutto / inkl. MwSt.
+#
+# Wichtig:
+# WBW und RESTWERT werden am Ende bewusst auf den passenden Wert gesetzt,
+# damit derive_fields() danach automatisch richtig rechnet:
+# WIEDERBESCHAFFUNGSWERTAUFWAND = WBW - RESTWERT
+
+    wbw_brutto = gx._extract_money(
         seite4,
         [
             r"Wiederbeschaffungswert\s*\(regelbesteuert\)\s*([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
-            r"Wiederbeschaffungswert.*?([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
+            r"Wiederbeschaffungswert inkl\.?\s*MwSt\.?\s*([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
         ],
     )
-
-    data["RESTWERT"] = gx._extract_money(
+    
+    wbw_netto = gx._extract_money(
         seite4,
         [
-            r"Restwert inkl\. MwSt\.?\s*([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
-            r"Restwert.*?([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
+            r"Wiederbeschaffungswert ohne MwSt\.?\s*([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
         ],
     )
-
-    # ===================================================
-    # SONDERKOSTEN
-    # ===================================================
-
-    data["MELDUNGSKOSTEN"] = gx._extract_money(
+    
+    restwert_brutto = gx._extract_money(
         seite4,
         [
-            r"Ab-\s*&\s*Anmeldegebühren\s*([0-9\., ]+€?)",
+            r"Restwert inkl\.?\s*MwSt\.?\s*([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
         ],
     )
-
-    # ===================================================
-    # GUTACHTERKOSTEN
-    # ===================================================
-
-    data["GUTACHTERKOSTEN_NETTO"] = gx._extract_money(
-        seite_rechnung,
+    
+    restwert_netto = gx._extract_money(
+        seite4,
         [
-            r"Gesamtbetrag ohne MwSt\.\s*([0-9\., ]+€?)",
+            r"Restwert ohne MwSt\.?\s*([0-9]+(?:\.[0-9]{3})*,[0-9]{2}\s*€?)",
         ],
     )
-
-    data["GUTACHTERKOSTEN_BRUTTO"] = gx._extract_money(
-        seite_rechnung,
-        [
-            r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+€?)",
-        ],
-    )
+    
+    # Optional speichern, falls du später im Debug sehen willst,
+    # welche Werte gefunden wurden.
+    data["WBW_BRUTTO"] = wbw_brutto
+    data["WBW_NETTO"] = wbw_netto
+    data["RESTWERT_BRUTTO"] = restwert_brutto
+    data["RESTWERT_NETTO"] = restwert_netto
+    
+    vorsteuer = data.get("VORSTEUERABZUG_RAW", "").strip().lower()
+    
+    if vorsteuer == "ja":
+        data["WBW"] = wbw_netto or wbw_brutto
+        data["RESTWERT"] = restwert_netto or restwert_brutto
+    else:
+        data["WBW"] = wbw_brutto or wbw_netto
+        data["RESTWERT"] = restwert_brutto or restwert_netto
+        # ===================================================
+        # SONDERKOSTEN
+        # ===================================================
+    
+        data["MELDUNGSKOSTEN"] = gx._extract_money(
+            seite4,
+            [
+                r"Ab-\s*&\s*Anmeldegebühren\s*([0-9\., ]+€?)",
+            ],
+        )
+    
+        # ===================================================
+        # GUTACHTERKOSTEN
+        # ===================================================
+    
+        data["GUTACHTERKOSTEN_NETTO"] = gx._extract_money(
+            seite_rechnung,
+            [
+                r"Gesamtbetrag ohne MwSt\.\s*([0-9\., ]+€?)",
+            ],
+        )
+    
+        data["GUTACHTERKOSTEN_BRUTTO"] = gx._extract_money(
+            seite_rechnung,
+            [
+                r"Gesamtbetrag inkl\. MwSt\.\s*([0-9\., ]+€?)",
+            ],
+        )
 
     # ===================================================
     # SCHADENHERGANG
