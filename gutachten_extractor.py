@@ -970,7 +970,37 @@ def extract_from_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
     text = pdf_to_text(pdf_bytes)
     extracted = extract_all(text, pdf_source=pdf_bytes)
     derived = derive_fields(extracted)
-    return {**extracted, **derived}
+
+    result = {**extracted, **derived}
+
+    # ===================================================
+    # NFZ-TOTALSCHADEN: Felder schützen
+    # ===================================================
+    # derive_fields() darf diese Felder NICHT überschreiben,
+    # weil der NFZ-Parser Firma + Geschäftsführer bewusst anders setzt.
+    if extracted.get("_PARSER") == "nfz_totalschaden":
+        protected_keys = [
+            "MANDANT_VORNAME",
+            "MANDANT_NACHNAME",
+            "MANDANT_VOLLNAME",
+            "MANDANT_NAME",
+            "MANDANT_FIRMA",
+            "SCHADENSNUMMER",
+            "VERSICHERUNG",
+            "VER_STRASSE",
+            "VER_ORT",
+            "FAHRZEUGTYP",
+            "UNFALL_ORT",
+        ]
+
+        for key in protected_keys:
+            if extracted.get(key) not in (None, ""):
+                result[key] = extracted.get(key)
+
+        # Alias zusätzlich sauber setzen
+        result["VRSICHERUNG"] = result.get("VERSICHERUNG", "")
+
+    return result
 
 
 def build_context_for_template(template_keys: set[str], extracted: Dict[str, Any]) -> Dict[str, Any]:
