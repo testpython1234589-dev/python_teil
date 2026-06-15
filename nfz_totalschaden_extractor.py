@@ -401,7 +401,7 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         # SONDERKOSTEN
         # ===================================================
     
-        data["MELDUNGSKOSTEN"] = gx._extract_money(
+    data["MELDUNGSKOSTEN"] = gx._extract_money(
             seite4,
             [
                 r"Ab-\s*&\s*Anmeldegebühren\s*([0-9\., ]+€?)",
