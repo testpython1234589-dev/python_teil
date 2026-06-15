@@ -14,6 +14,56 @@ def _search(pattern: str, text: str, flags: int = re.S | re.I) -> str:
 def _one_line(value: str) -> str:
     return " ".join((value or "").split())
 
+def _extract_nfz_schadensnummer(*texts: str) -> str:
+    """
+    Erkennt NFZ-Schadennummern wie:
+    SD2 0003 5413 44 T01
+
+    Funktioniert sowohl im Beteiligten-Block:
+    Schadennummer SD2 0003 5413 44 T01
+
+    als auch auf der Rechnung:
+    Schaden-Nr.
+    Versicherungs-Nr.
+    SD2 0003 5413 44 T01
+    K 576-611645/61
+    """
+
+    patterns = [
+        # Beteiligtenblock, normal oder flach extrahiert
+        r"\bSchadennummer\s*[:\-]?\s+([A-Z0-9]{2,5}(?:\s+[A-Z0-9]{2,6}){2,6})(?=\s+(?:Auftrag|Datum|Erteilt|Beauftragung)\b|$)",
+
+        # Rechnung: Schaden-Nr. Versicherungs-Nr. SD2 ... K 576...
+        r"\bSchaden-Nr\.\s+Versicherungs-Nr\.\s+([A-Z0-9]{2,5}(?:\s+[A-Z0-9]{2,6}){2,6})\s+K\s+\d",
+
+        # Fallback: etwas freier, aber stoppt vor Auftrag/Datum
+        r"\bSchadennummer\s*[:\-]?\s+([A-Z0-9][A-Z0-9 ]{5,40}?)(?=\s+(?:Auftrag|Datum|Erteilt|Beauftragung)\b|$)",
+    ]
+
+    for text in texts:
+        flat = _one_line(text)
+
+        for pattern in patterns:
+            m = re.search(pattern, flat, re.I)
+            if not m:
+                continue
+
+            value = _one_line(m.group(1))
+
+            # Sicherheits-Cleanup, falls doch etwas zu viel mitkommt
+            value = re.sub(
+                r"\b(?:Auftrag|Datum|Erteilt|Beauftragung|Versicherung)\b.*$",
+                "",
+                value,
+                flags=re.I,
+            ).strip()
+
+            # Versicherungsnummer nicht aus Versehen nehmen
+            if value and not value.startswith("K "):
+                return value
+
+    return ""
+
 
 def _find_page(
     pages,
@@ -187,11 +237,10 @@ def parse_nfz_totalschaden(pages, pdf_source=None) -> Dict[str, Any]:
         vers_block,
         re.I | re.M,
     )
-
-    data["SCHADENSNUMMER"] = _search(
-        r"Schadennummer\s+([^\n]+)",
+    data["SCHADENSNUMMER"] = _extract_nfz_schadensnummer(
         vers_block,
-        re.I | re.M,
+        seite5,
+        full,
     )
 
     data["SCHADENSNUMMER"] = _one_line(data["SCHADENSNUMMER"])
