@@ -197,53 +197,104 @@ def _normalize_plate(value: str) -> str:
     return value
 
 
-def _extract_unfall_ort_nfz_standard(beteiligte_page: str) -> str:
-    """
-    Extrahiert nur den Unfallort, nicht den Besichtigungsort.
 
-    Beispiel:
-    Unfall Datum 12.05.2026
-    Uhrzeit 14:30 Uhr
-    Ort Poco Einrichtungsmärkte, Naumburger Str 16-22 ,
-    D-04229 Leipzig
-    Datum 29.05.2026 - 17:45 Uhr
-    Besichtigung ...
+def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
     """
+    Extrahiert Unfallgegner aus dem Block:
+
+    Unfallgegner
+    Name ...
+    Straße ...
+    PLZ Ort ...
+
+    Funktioniert auch, wenn PyMuPDF daraus macht:
+    Unfallgegner Name
+    Poco Einrichtungsmärkte
+    Straße
+    Naumburger Str. 16-22
+    PLZ Ort
+    04229 Leipzig
+    """
+    result = {
+        "UNFALLGEGNER_NAME": "",
+        "UNFALLGEGNER_STRASSE": "",
+        "UNFALLGEGNER_PLZ_ORT": "",
+    }
+
+    if not beteiligte_page:
+        return result
+
     lines = _lines(beteiligte_page)
 
-    in_unfall_block = False
+    block_lines = []
+    in_block = False
 
-    for i, line in enumerate(lines):
+    for line in lines:
         low = line.lower()
 
-        if low.startswith("unfall datum"):
-            in_unfall_block = True
+        # Start Unfallgegner-Block
+        if low.startswith("unfallgegner"):
+            in_block = True
+
+            # Wichtig:
+            # Falls die Zeile "Unfallgegner Name" lautet,
+            # darf "Name" nicht verloren gehen.
+            rest = re.sub(r"^unfallgegner\s*", "", line, flags=re.I).strip()
+            if rest:
+                block_lines.append(rest)
+
             continue
 
-        if in_unfall_block and low.startswith("ort "):
-            parts = [line[len("Ort "):].strip()]
+        if in_block:
+            # Ende Unfallgegner-Block
+            if (
+                low.startswith("auftrag")
+                or low.startswith("datum ")
+                or low.startswith("erteilt durch")
+                or low.startswith("beauftragung")
+                or low.startswith("gemäß auftrag")
+                or low.startswith("anwalt")
+                or low.startswith("besichtigung")
+                or low.startswith("unfall datum")
+            ):
+                break
 
-            j = i + 1
-            while j < len(lines):
-                nxt = lines[j].strip()
-                nxt_low = nxt.lower()
+            block_lines.append(line)
 
-                # Ende Unfallort-Block
-                if (
-                    nxt_low.startswith("datum ")
-                    or nxt_low.startswith("besichtigung")
-                    or nxt_low.startswith("sachverständiger")
-                    or nxt_low.startswith("unfallgegner")
-                    or nxt_low.startswith("auftrag")
-                ):
-                    break
+    block = "\n".join(block_lines)
 
-                parts.append(nxt)
-                j += 1
+    name = _one_line(_value_after_label(block, "Name"))
+    strasse = _one_line(_value_after_label(block, "Straße"))
+    plz_ort = _one_line(_value_after_label(block, "PLZ Ort"))
 
-            return _one_line(", ".join(p.strip(" ,") for p in parts if p.strip()))
+    # Fallback:
+    # Wenn "Name" als Label verloren ging, ist oft die erste freie Zeile der Name.
+    if not name:
+        for line in block_lines:
+            low = line.lower().strip()
 
-    return ""
+            if low in {"name", "straße", "strasse", "plz ort", "plz/ort"}:
+                continue
+
+            if low.startswith("straße ") or low.startswith("strasse "):
+                continue
+
+            if low.startswith("plz ort ") or low.startswith("plz/ort "):
+                continue
+
+            if re.match(r"^\d{5}\s+", line):
+                continue
+
+            # Erste echte freie Zeile ist sehr wahrscheinlich der Name
+            name = _one_line(line)
+            break
+
+    result["UNFALLGEGNER_NAME"] = name
+    result["UNFALLGEGNER_STRASSE"] = strasse
+    result["UNFALLGEGNER_PLZ_ORT"] = plz_ort
+
+    return result
+
 
 def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
     """
