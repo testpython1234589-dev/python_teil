@@ -197,6 +197,54 @@ def _normalize_plate(value: str) -> str:
     return value
 
 
+def _extract_unfall_ort_nfz_standard(beteiligte_page: str) -> str:
+    """
+    Extrahiert nur den Unfallort, nicht den Besichtigungsort.
+
+    Beispiel:
+    Unfall Datum 12.05.2026
+    Uhrzeit 14:30 Uhr
+    Ort Poco Einrichtungsmärkte, Naumburger Str 16-22 ,
+    D-04229 Leipzig
+    Datum 29.05.2026 - 17:45 Uhr
+    Besichtigung ...
+    """
+    lines = _lines(beteiligte_page)
+
+    in_unfall_block = False
+
+    for i, line in enumerate(lines):
+        low = line.lower()
+
+        if low.startswith("unfall datum"):
+            in_unfall_block = True
+            continue
+
+        if in_unfall_block and low.startswith("ort "):
+            parts = [line[len("Ort "):].strip()]
+
+            j = i + 1
+            while j < len(lines):
+                nxt = lines[j].strip()
+                nxt_low = nxt.lower()
+
+                # Ende Unfallort-Block
+                if (
+                    nxt_low.startswith("datum ")
+                    or nxt_low.startswith("besichtigung")
+                    or nxt_low.startswith("sachverständiger")
+                    or nxt_low.startswith("unfallgegner")
+                    or nxt_low.startswith("auftrag")
+                ):
+                    break
+
+                parts.append(nxt)
+                j += 1
+
+            return _one_line(", ".join(p.strip(" ,") for p in parts if p.strip()))
+
+    return ""
+
 def _add_days(date_str: str, days: int) -> str:
     try:
         dt = datetime.strptime(date_str, "%d.%m.%Y")
@@ -316,6 +364,11 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
         vorsteuer = ""
 
     vorname, nachname = _split_person(person)
+        # Ansprechpartner separat speichern
+    result["ANSPRECHPARTNER_ANREDE"] = anrede
+    result["ANSPRECHPARTNER_NAME"] = person
+    result["ANSPRECHPARTNER_VORNAME"] = vorname
+    result["ANSPRECHPARTNER_NACHNAME"] = nachname
 
     firma = _one_line(firma)
 
