@@ -51,12 +51,103 @@ def extract_from_pdf_bytes(
 
         if template_label == "Nutzfahrzeuge Standard":
 
-            extracted = ns.parse_nfz_standard(
-                pages,
-                pdf_source=pdf_bytes,
-            )
+    extracted = ns.parse_nfz_standard(
+        pages,
+        pdf_source=pdf_bytes,
+    )
 
-            extracted["_PARSER"] = "nfz_standard"
+    extracted["_PARSER"] = "nfz_standard"
+    extracted["_PARSER_VARIANTE"] = "reparaturschaden"
+
+    # derive_fields bleibt wie bisher aktiv
+    derived = derive_with_existing_logic(extracted)
+
+    result = {**extracted, **derived}
+
+    # ===================================================
+    # NFZ-STANDARD / REPARATURSCHADEN: Felder schützen
+    # ===================================================
+    # derive_fields() ist allgemein und überschreibt sonst:
+    # - Firma wird als Person gesplittet
+    # - REPARATURSCHADEN wird zu Geldbetrag
+    # - Totalschadenfelder werden befüllt
+    # - Gegnerkennzeichen wird eigenes Kennzeichen
+    protected_keys = [
+        "MANDANT_ANREDE",
+        "MANDANT_FIRMA",
+        "MANDANT_NAME",
+        "MANDANT_VORNAME",
+        "MANDANT_NACHNAME",
+        "MANDANT_TITEL",
+        "MANDANT_VOLLNAME",
+        "MANDANT_STRASSE",
+        "MANDANT_PLZ_ORT",
+
+        "AKTENZEICHEN",
+        "RECHNUNGSNUMMER",
+
+        "KENNZEICHEN",
+        "KENNZEICHEN_MANDANT",
+        "EIGENES_KENNZEICHEN",
+
+        "FAHRZEUGTYP",
+        "HERSTELLER",
+        "MODELL",
+        "VIN",
+
+        "SCHADENART",
+        "REPARATURSCHADEN",
+
+        "REPARATURKOSTEN",
+        "REPARATURKOSTEN_NETTO",
+        "REPARATURKOSTEN_BRUTTO",
+        "SCHADENHOEHE_NETTO",
+        "SCHADENHOEHE_BRUTTO",
+
+        "WBW",
+        "RESTWERT",
+
+        "GUTACHTERKOSTEN",
+        "GUTACHTERKOSTEN_NETTO",
+        "GUTACHTERKOSTEN_BRUTTO",
+
+        "KOSTENSUMME_REPARATUR",
+        "KOSTENSUMME_X",
+    ]
+
+    for key in protected_keys:
+        if extracted.get(key) not in (None, ""):
+            result[key] = extracted.get(key)
+
+    # ===================================================
+    # Harte Reparaturschaden-Korrekturen
+    # ===================================================
+
+    result["SCHADENART"] = "Reparaturschaden"
+    result["REPARATURSCHADEN"] = "Ja"
+
+    # Bei Reparaturschaden dürfen diese Totalschadenfelder leer bleiben
+    result["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
+    result["KOSTENSUMME_TOTALSCHADEN"] = ""
+
+    # Im NFZ-Standard-Gutachten ist MER KV 50 das eigene Kennzeichen.
+    # Gegnerkennzeichen ist nicht vorhanden.
+    result["KENNZEICHEN_GEGNER"] = ""
+
+    result["KENNZEICHEN"] = (
+        extracted.get("KENNZEICHEN_MANDANT")
+        or extracted.get("EIGENES_KENNZEICHEN")
+        or extracted.get("KENNZEICHEN")
+        or ""
+    )
+
+    result["KENNZEICHEN_MANDANT"] = result["KENNZEICHEN"]
+    result["EIGENES_KENNZEICHEN"] = result["KENNZEICHEN"]
+
+    # KOSTENSUMME_X soll bei Reparaturschaden die Reparatursumme sein
+    result["KOSTENSUMME_X"] = result.get("KOSTENSUMME_REPARATUR", "")
+
+    return result
 
         elif template_label == "Nutzfahrzeuge Totalschaden":
 
