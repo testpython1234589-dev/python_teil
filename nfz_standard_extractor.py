@@ -207,7 +207,7 @@ def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
     Straße ...
     PLZ Ort ...
 
-    Funktioniert auch, wenn PyMuPDF daraus macht:
+    Funktioniert auch bei PDF-Text wie:
     Unfallgegner Name
     Poco Einrichtungsmärkte
     Straße
@@ -223,6 +223,80 @@ def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
 
     if not beteiligte_page:
         return result
+
+    lines = _lines(beteiligte_page)
+
+    block_lines = []
+    in_block = False
+
+    for line in lines:
+        low = line.lower().strip()
+
+        # Start Unfallgegner-Block
+        if low.startswith("unfallgegner"):
+            in_block = True
+
+            # WICHTIG:
+            # Bei "Unfallgegner Name" darf "Name" nicht verloren gehen.
+            rest = re.sub(r"^unfallgegner\s*", "", line, flags=re.I).strip()
+            if rest:
+                block_lines.append(rest)
+
+            continue
+
+        if in_block:
+            # Ende Unfallgegner-Block
+            if (
+                low.startswith("auftrag")
+                or low.startswith("datum ")
+                or low.startswith("erteilt durch")
+                or low.startswith("beauftragung")
+                or low.startswith("gemäß auftrag")
+                or low.startswith("anwalt")
+                or low.startswith("besichtigung")
+                or low.startswith("unfall datum")
+            ):
+                break
+
+            block_lines.append(line)
+
+    block = "\n".join(block_lines)
+
+    name = _one_line(_value_after_label(block, "Name"))
+    strasse = _one_line(_value_after_label(block, "Straße"))
+    plz_ort = _one_line(_value_after_label(block, "PLZ Ort"))
+
+    # Fallback, falls Label "Name" trotzdem nicht erkannt wurde:
+    # Erste freie Zeile vor Straße/PLZ ist sehr wahrscheinlich der Name.
+    if not name:
+        for line in block_lines:
+            cleaned = _one_line(line)
+            low = cleaned.lower()
+
+            if not cleaned:
+                continue
+
+            if low in {"name", "straße", "strasse", "plz ort", "plz/ort"}:
+                continue
+
+            if low.startswith("straße ") or low.startswith("strasse "):
+                continue
+
+            if low.startswith("plz ort ") or low.startswith("plz/ort "):
+                continue
+
+            if re.match(r"^\d{5}\s+", cleaned):
+                continue
+
+            # Das ist dann "Poco Einrichtungsmärkte"
+            name = cleaned
+            break
+
+    result["UNFALLGEGNER_NAME"] = name
+    result["UNFALLGEGNER_STRASSE"] = strasse
+    result["UNFALLGEGNER_PLZ_ORT"] = plz_ort
+
+    return result
 
     lines = _lines(beteiligte_page)
 
