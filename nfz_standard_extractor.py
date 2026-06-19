@@ -245,6 +245,60 @@ def _extract_unfall_ort_nfz_standard(beteiligte_page: str) -> str:
 
     return ""
 
+def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
+    """
+    Extrahiert Unfallgegner aus dem Block:
+
+    Unfallgegner
+    Name ...
+    Straße ...
+    PLZ Ort ...
+    """
+    result = {
+        "UNFALLGEGNER_NAME": "",
+        "UNFALLGEGNER_STRASSE": "",
+        "UNFALLGEGNER_PLZ_ORT": "",
+    }
+
+    if not beteiligte_page:
+        return result
+
+    lines = _lines(beteiligte_page)
+
+    block_lines = []
+    in_block = False
+
+    for line in lines:
+        low = line.lower()
+
+        if low.startswith("unfallgegner"):
+            in_block = True
+            continue
+
+        if in_block:
+            # Ende Unfallgegner-Block
+            if (
+                low.startswith("auftrag")
+                or low.startswith("datum ")
+                or low.startswith("erteilt durch")
+                or low.startswith("beauftragung")
+                or low.startswith("gemäß auftrag")
+                or low.startswith("anwalt")
+                or low.startswith("besichtigung")
+            ):
+                break
+
+            block_lines.append(line)
+
+    block = "\n".join(block_lines)
+
+    result["UNFALLGEGNER_NAME"] = _one_line(_value_after_label(block, "Name"))
+    result["UNFALLGEGNER_STRASSE"] = _one_line(_value_after_label(block, "Straße"))
+    result["UNFALLGEGNER_PLZ_ORT"] = _one_line(_value_after_label(block, "PLZ Ort"))
+
+    return result
+
+
 def _add_days(date_str: str, days: int) -> str:
     try:
         dt = datetime.strptime(date_str, "%d.%m.%Y")
@@ -546,7 +600,14 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
 
         "VRSICHERUNG": "",
         "VERSICHERUNG": "",
+        "VER_STRASSE": "",
+        "VER_ORT": "",
+        
         "UNFALLGEGNER_NAME": "",
+        "UNFALLGEGNER_STRASSE": "",
+        "UNFALLGEGNER_PLZ_ORT": "",
+        "ANSPRUCHSGEGNER": "",
+        
         "SCHADENSNUMMER": "",
 
         "UNFALL_DATUM": "",
@@ -728,25 +789,64 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
     )
 
     # 6) Gegner / Versicherung
-    gegner = _search_first(
-        beteiligte_page or invoice_page or full,
+    # 6) Gegner / Versicherung
+
+    # Unfallgegner immer separat lesen
+    unfallgegner = _extract_unfallgegner_nfz_standard(beteiligte_page)
+    
+    data["UNFALLGEGNER_NAME"] = unfallgegner.get("UNFALLGEGNER_NAME", "")
+    data["UNFALLGEGNER_STRASSE"] = unfallgegner.get("UNFALLGEGNER_STRASSE", "")
+    data["UNFALLGEGNER_PLZ_ORT"] = unfallgegner.get("UNFALLGEGNER_PLZ_ORT", "")
+    data["ANSPRUCHSGEGNER"] = data["UNFALLGEGNER_NAME"]
+    
+    # Echte Versicherung suchen
+    # Wichtig: NICHT "Versicherter" verwenden, weil das bei deinem PDF Poco ist,
+    # aber keine Versicherung.
+    versicherung_name = _search_first(
+        beteiligte_page or full,
         [
-            r"Unfallgegner\s+Name\s+(.+?)\n",
-            r"Versicherter\s+(.+?)\s+VIN",
+            r"Versicherung\s+Name\s+(.+?)\n",
+            r"\nVersicherung\s+(.+?)\n",
         ],
     )
-
-    data["UNFALLGEGNER_NAME"] = _one_line(gegner)
-    data["VERSICHERUNG"] = _one_line(gegner)
-    data["VRSICHERUNG"] = _one_line(gegner)
-
-    data["SCHADENSNUMMER"] = _search_first(
-        full,
+    
+    versicherung_strasse = _search_first(
+        beteiligte_page or full,
         [
-            r"Schadennummer\s*[:\-]?\s*([A-Z0-9][A-Z0-9\s\-\/]{5,40})",
-            r"Schaden-?Nr\.\s*[:\-]?\s*([A-Z0-9][A-Z0-9\s\-\/]{5,40})",
+            r"Versicherung\s+Name\s+.+?\nStraße\s+(.+?)\nPLZ Ort",
+            r"\nVersicherung\s+.+?\nStraße\s+(.+?)\nPLZ Ort",
         ],
     )
+    
+    versicherung_ort = _search_first(
+        beteiligte_page or full,
+        [
+            r"Versicherung\s+Name\s+.+?\n(?:Straße\s+.+?\n)?PLZ Ort\s+(.+?)\n",
+            r"\nVersicherung\s+.+?\n(?:Straße\s+.+?\n)?PLZ Ort\s+(.+?)\n",
+        ],
+    )
+    
+    # Wenn echte Versicherung vorhanden: Versicherung verwenden
+    if versicherung_name:
+        data["VERSICHERUNG"] = _one_line(versicherung_name)
+        data["VRSICHERUNG"] = _one_line(versicherung_name)
+        data["VER_STRASSE"] = _one_line(versicherung_strasse)
+        data["VER_ORT"] = _one_line(versicherung_ort)
+    
+    # Wenn keine Versicherung vorhanden: Unfallgegner als Ersatz verwenden
+    else:
+        data["VERSICHERUNG"] = data["UNFALLGEGNER_NAME"]
+        data["VRSICHERUNG"] = data["UNFALLGEGNER_NAME"]
+        data["VER_STRASSE"] = data["UNFALLGEGNER_STRASSE"]
+        data["VER_ORT"] = data["UNFALLGEGNER_PLZ_ORT"]
+    
+        data["SCHADENSNUMMER"] = _search_first(
+            full,
+            [
+                r"Schadennummer\s*[:\-]?\s*([A-Z0-9][A-Z0-9\s\-\/]{5,40})",
+                r"Schaden-?Nr\.\s*[:\-]?\s*([A-Z0-9][A-Z0-9\s\-\/]{5,40})",
+            ],
+        )
 
     # 7) Schadenart
     if re.search(r"Es\s+handelt\s+sich\s+um\s+einen\s+Reparaturschaden", full, flags=re.I) or \
