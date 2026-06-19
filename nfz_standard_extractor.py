@@ -9,23 +9,10 @@ import gutachten_extractor as gx
 
 
 # ============================================================
-# nfz_standard.py
+# nfz_standard_extractor.py
 # NFZ Standard Parser – Reparaturschaden
-#
-# Drop-in-Ersatz für deine alte Datei:
-# def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]
-#
-# Wichtig:
-# - Michael Hohlwein wird NICHT als Mandant genommen.
-# - Mandant wird aus dem Anspruchsteller-Block gelesen.
-# - Rechtsanwalt/Kanzlei wird getrennt ignoriert.
-# - Reparaturschaden != Totalschaden.
 # ============================================================
 
-
-# ------------------------------------------------------------
-# Basis-Helfer
-# ------------------------------------------------------------
 
 def _clean(value: str) -> str:
     return (value or "").replace("\xa0", " ").strip()
@@ -53,7 +40,6 @@ def _search_first(text: str, patterns: List[str], flags: int = re.S | re.I) -> s
 
 
 def _get_page(pages: List[str], *keywords: str) -> str:
-    """Gibt die erste Seite zurück, die alle Keywords enthält."""
     for page in pages:
         low = (page or "").lower()
         if all(k.lower() in low for k in keywords):
@@ -62,14 +48,11 @@ def _get_page(pages: List[str], *keywords: str) -> str:
 
 
 def _cut_before(text: str, patterns: List[str]) -> str:
-    """
-    Schneidet Text vor dem frühesten Pattern ab.
-    Dadurch wird der Kanzlei-/Anwaltblock sicher entfernt.
-    """
     if not text:
         return ""
 
     cut_positions = []
+
     for pattern in patterns:
         m = re.search(pattern, text, flags=re.I)
         if m:
@@ -82,23 +65,15 @@ def _cut_before(text: str, patterns: List[str]) -> str:
 
 
 def _value_after_label(block: str, label: str) -> str:
-    """
-    Robust für beide Varianten:
-    1) Straße An der Autobahn 1b
-    2) Straße
-       An der Autobahn 1b
-    """
     lines = _lines(block)
     label_low = label.lower()
 
     for i, line in enumerate(lines):
         low = line.lower()
 
-        # Variante: "Straße An der Autobahn 1b"
         if low.startswith(label_low + " "):
             return _one_line(line[len(label):])
 
-        # Variante: "Straße" in eigener Zeile
         if low == label_low and i + 1 < len(lines):
             return _one_line(lines[i + 1])
 
@@ -106,7 +81,6 @@ def _value_after_label(block: str, label: str) -> str:
 
 
 def _parse_eur(value: str) -> Optional[Decimal]:
-    """Deutsche Geldwerte -> Decimal."""
     if not value:
         return None
 
@@ -117,12 +91,9 @@ def _parse_eur(value: str) -> Optional[Decimal]:
     if not s:
         return None
 
-    # 1.063,00 -> 1063.00
     if "," in s:
-        s = s.replace(".", "")
-        s = s.replace(",", ".")
+        s = s.replace(".", "").replace(",", ".")
     else:
-        # 7.900 -> 7900
         if re.search(r"\.\d{3}$", s):
             s = s.replace(".", "")
 
@@ -142,10 +113,10 @@ def _format_eur(value: Decimal | str | int | float | None) -> str:
             return ""
 
     value = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    s = f"{value:,.2f}"       # 1,063.00
-    s = s.replace(",", "X")   # 1X063.00
-    s = s.replace(".", ",")   # 1X063,00
-    s = s.replace("X", ".")   # 1.063,00
+    s = f"{value:,.2f}"
+    s = s.replace(",", "X")
+    s = s.replace(".", ",")
+    s = s.replace("X", ".")
     return f"{s} €"
 
 
@@ -169,10 +140,12 @@ def _sum_eur(*values: str) -> str:
 
 def _split_person(person: str) -> Tuple[str, str]:
     person = _one_line(person)
+
     if not person:
         return "", ""
 
     parts = person.split()
+
     if len(parts) == 1:
         return "", parts[0]
 
@@ -184,6 +157,7 @@ def _normalize_anrede(value: str) -> str:
 
     if v in {"herr", "herrn"}:
         return "Herr"
+
     if v == "frau":
         return "Frau"
 
@@ -197,24 +171,56 @@ def _normalize_plate(value: str) -> str:
     return value
 
 
+def _add_days(date_str: str, days: int) -> str:
+    try:
+        dt = datetime.strptime(date_str, "%d.%m.%Y")
+        return (dt + timedelta(days=days)).strftime("%d.%m.%Y")
+    except Exception:
+        return ""
+
+
+def _extract_unfall_ort_nfz_standard(beteiligte_page: str) -> str:
+    lines = _lines(beteiligte_page)
+
+    in_unfall_block = False
+
+    for i, line in enumerate(lines):
+        low = line.lower().strip()
+
+        if low.startswith("unfall datum"):
+            in_unfall_block = True
+            continue
+
+        if in_unfall_block and (low == "ort" or low.startswith("ort ")):
+            if low == "ort":
+                parts = []
+            else:
+                parts = [line[len("Ort "):].strip()]
+
+            j = i + 1
+
+            while j < len(lines):
+                nxt = lines[j].strip()
+                nxt_low = nxt.lower().strip()
+
+                if (
+                    nxt_low.startswith("datum ")
+                    or nxt_low.startswith("besichtigung")
+                    or nxt_low.startswith("sachverständiger")
+                    or nxt_low.startswith("unfallgegner")
+                    or nxt_low.startswith("auftrag")
+                ):
+                    break
+
+                parts.append(nxt)
+                j += 1
+
+            return _one_line(", ".join(p.strip(" ,") for p in parts if p.strip()))
+
+    return ""
+
 
 def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
-    """
-    Extrahiert Unfallgegner aus dem Block:
-
-    Unfallgegner
-    Name ...
-    Straße ...
-    PLZ Ort ...
-
-    Funktioniert auch bei PDF-Text wie:
-    Unfallgegner Name
-    Poco Einrichtungsmärkte
-    Straße
-    Naumburger Str. 16-22
-    PLZ Ort
-    04229 Leipzig
-    """
     result = {
         "UNFALLGEGNER_NAME": "",
         "UNFALLGEGNER_STRASSE": "",
@@ -226,26 +232,23 @@ def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
 
     lines = _lines(beteiligte_page)
 
-    block_lines = []
+    block_lines: List[str] = []
     in_block = False
 
     for line in lines:
         low = line.lower().strip()
 
-        # Start Unfallgegner-Block
         if low.startswith("unfallgegner"):
             in_block = True
 
-            # WICHTIG:
-            # Bei "Unfallgegner Name" darf "Name" nicht verloren gehen.
             rest = re.sub(r"^unfallgegner\s*", "", line, flags=re.I).strip()
+
             if rest:
                 block_lines.append(rest)
 
             continue
 
         if in_block:
-            # Ende Unfallgegner-Block
             if (
                 low.startswith("auftrag")
                 or low.startswith("datum ")
@@ -266,8 +269,6 @@ def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
     strasse = _one_line(_value_after_label(block, "Straße"))
     plz_ort = _one_line(_value_after_label(block, "PLZ Ort"))
 
-    # Fallback, falls Label "Name" trotzdem nicht erkannt wurde:
-    # Erste freie Zeile vor Straße/PLZ ist sehr wahrscheinlich der Name.
     if not name:
         for line in block_lines:
             cleaned = _one_line(line)
@@ -288,7 +289,6 @@ def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
             if re.match(r"^\d{5}\s+", cleaned):
                 continue
 
-            # Das ist dann "Poco Einrichtungsmärkte"
             name = cleaned
             break
 
@@ -298,159 +298,8 @@ def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
 
     return result
 
-    lines = _lines(beteiligte_page)
-
-    block_lines = []
-    in_block = False
-
-    for line in lines:
-        low = line.lower()
-
-        # Start Unfallgegner-Block
-        if low.startswith("unfallgegner"):
-            in_block = True
-
-            # Wichtig:
-            # Falls die Zeile "Unfallgegner Name" lautet,
-            # darf "Name" nicht verloren gehen.
-            rest = re.sub(r"^unfallgegner\s*", "", line, flags=re.I).strip()
-            if rest:
-                block_lines.append(rest)
-
-            continue
-
-        if in_block:
-            # Ende Unfallgegner-Block
-            if (
-                low.startswith("auftrag")
-                or low.startswith("datum ")
-                or low.startswith("erteilt durch")
-                or low.startswith("beauftragung")
-                or low.startswith("gemäß auftrag")
-                or low.startswith("anwalt")
-                or low.startswith("besichtigung")
-                or low.startswith("unfall datum")
-            ):
-                break
-
-            block_lines.append(line)
-
-    block = "\n".join(block_lines)
-
-    name = _one_line(_value_after_label(block, "Name"))
-    strasse = _one_line(_value_after_label(block, "Straße"))
-    plz_ort = _one_line(_value_after_label(block, "PLZ Ort"))
-
-    # Fallback:
-    # Wenn "Name" als Label verloren ging, ist oft die erste freie Zeile der Name.
-    if not name:
-        for line in block_lines:
-            low = line.lower().strip()
-
-            if low in {"name", "straße", "strasse", "plz ort", "plz/ort"}:
-                continue
-
-            if low.startswith("straße ") or low.startswith("strasse "):
-                continue
-
-            if low.startswith("plz ort ") or low.startswith("plz/ort "):
-                continue
-
-            if re.match(r"^\d{5}\s+", line):
-                continue
-
-            # Erste echte freie Zeile ist sehr wahrscheinlich der Name
-            name = _one_line(line)
-            break
-
-    result["UNFALLGEGNER_NAME"] = name
-    result["UNFALLGEGNER_STRASSE"] = strasse
-    result["UNFALLGEGNER_PLZ_ORT"] = plz_ort
-
-    return result
-
-
-def _extract_unfallgegner_nfz_standard(beteiligte_page: str) -> Dict[str, str]:
-    """
-    Extrahiert Unfallgegner aus dem Block:
-
-    Unfallgegner
-    Name ...
-    Straße ...
-    PLZ Ort ...
-    """
-    result = {
-        "UNFALLGEGNER_NAME": "",
-        "UNFALLGEGNER_STRASSE": "",
-        "UNFALLGEGNER_PLZ_ORT": "",
-    }
-
-    if not beteiligte_page:
-        return result
-
-    lines = _lines(beteiligte_page)
-
-    block_lines = []
-    in_block = False
-
-    for line in lines:
-        low = line.lower()
-
-        if low.startswith("unfallgegner"):
-            in_block = True
-            continue
-
-        if in_block:
-            # Ende Unfallgegner-Block
-            if (
-                low.startswith("auftrag")
-                or low.startswith("datum ")
-                or low.startswith("erteilt durch")
-                or low.startswith("beauftragung")
-                or low.startswith("gemäß auftrag")
-                or low.startswith("anwalt")
-                or low.startswith("besichtigung")
-            ):
-                break
-
-            block_lines.append(line)
-
-    block = "\n".join(block_lines)
-
-    result["UNFALLGEGNER_NAME"] = _one_line(_value_after_label(block, "Name"))
-    result["UNFALLGEGNER_STRASSE"] = _one_line(_value_after_label(block, "Straße"))
-    result["UNFALLGEGNER_PLZ_ORT"] = _one_line(_value_after_label(block, "PLZ Ort"))
-
-    return result
-
-
-def _add_days(date_str: str, days: int) -> str:
-    try:
-        dt = datetime.strptime(date_str, "%d.%m.%Y")
-        return (dt + timedelta(days=days)).strftime("%d.%m.%Y")
-    except Exception:
-        return ""
-
-
-# ------------------------------------------------------------
-# Anspruchsteller/Mandant
-# ------------------------------------------------------------
 
 def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, str]:
-    """
-    Liest NUR den Anspruchstellerblock.
-
-    Fehlerursache bei dir:
-    Die Seite enthält danach auch:
-    Kanzlei Rechtsanwalt Michael Hohlwein
-    Name Michael Hohlwein
-    ...
-    Wenn man einfach "Name ..." sucht, kann fälschlich Michael Hohlwein kommen.
-
-    Lösung:
-    Vor "Kanzlei", "Anwalt" oder "Unfall Datum" abschneiden.
-    """
-
     result = {
         "MANDANT_ANREDE": "",
         "MANDANT_FIRMA": "",
@@ -461,6 +310,10 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
         "MANDANT_VOLLNAME": "",
         "MANDANT_STRASSE": "",
         "MANDANT_PLZ_ORT": "",
+        "ANSPRECHPARTNER_ANREDE": "",
+        "ANSPRECHPARTNER_NAME": "",
+        "ANSPRECHPARTNER_VORNAME": "",
+        "ANSPRECHPARTNER_NACHNAME": "",
         "VORSTEUERABZUG_RAW": "",
         "VORSTEUERBERECHTIGUNG": "",
         "GENDERN1": "",
@@ -473,7 +326,6 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
     if not beteiligte_page:
         return result
 
-    # Kanzlei-/Anwaltsblock komplett entfernen
     claimant_block = _cut_before(
         beteiligte_page,
         [
@@ -484,7 +336,6 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
         ],
     )
 
-    # Header entfernen, falls vorhanden
     claimant_block = re.sub(
         r"^.*?Beteiligte,\s*Besichtigungen\s*&\s*Auftrag",
         "",
@@ -494,7 +345,6 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
 
     firma = _value_after_label(claimant_block, "Name")
 
-    # Falls PDF-Text in einer Zeile steht:
     if not firma:
         firma = _search_first(
             claimant_block,
@@ -503,7 +353,6 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
             ],
         )
 
-    # Person: Herr/Frau innerhalb des bereits gekürzten Anspruchstellerblocks
     anrede = ""
     person = ""
 
@@ -516,6 +365,7 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
     )
 
     m = re.match(r"^(Herrn?|Frau)\s+(.+)$", _one_line(person_line), flags=re.I)
+
     if m:
         anrede = _normalize_anrede(m.group(1))
         person = _one_line(m.group(2))
@@ -524,7 +374,6 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
     plz_ort = _value_after_label(claimant_block, "PLZ Ort")
     vorsteuer_raw = _value_after_label(claimant_block, "Vorsteuerabzug")
 
-    # Vorsteuer manchmal nach "Anspruchsteller" in gleicher Zeile
     if not vorsteuer_raw:
         vorsteuer_raw = _search_first(
             claimant_block,
@@ -543,13 +392,12 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
         vorsteuer = ""
 
     vorname, nachname = _split_person(person)
-        # Ansprechpartner separat speichern
+    firma = _one_line(firma)
+
     result["ANSPRECHPARTNER_ANREDE"] = anrede
     result["ANSPRECHPARTNER_NAME"] = person
     result["ANSPRECHPARTNER_VORNAME"] = vorname
     result["ANSPRECHPARTNER_NACHNAME"] = nachname
-
-    firma = _one_line(firma)
 
     result["MANDANT_ANREDE"] = anrede
     result["MANDANT_FIRMA"] = firma
@@ -566,13 +414,13 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
     else:
         result["MANDANT_VOLLNAME"] = firma or person
 
-    # Anschreiben-Gender
     if anrede == "Herr" and nachname:
         result["GENDERN1"] = f"Sehr geehrter Herr {nachname},"
         result["GENDERN2"] = f"Herrn {person}"
         result["GENDER1"] = "Herr"
         result["GENDER2"] = "Herrn"
         result["GENDERN"] = f"Herr {nachname}"
+
     elif anrede == "Frau" and nachname:
         result["GENDERN1"] = f"Sehr geehrte Frau {nachname},"
         result["GENDERN2"] = f"Frau {person}"
@@ -584,10 +432,6 @@ def _extract_claimant_from_beteiligte_page(beteiligte_page: str) -> Dict[str, st
 
 
 def _extract_claimant_from_invoice(invoice_page: str) -> Dict[str, str]:
-    """
-    Fallback, falls Beteiligten-Seite nicht gelesen werden kann.
-    Liest Adresse oben aus der Rechnung.
-    """
     result = {
         "MANDANT_ANREDE": "",
         "MANDANT_FIRMA": "",
@@ -598,6 +442,10 @@ def _extract_claimant_from_invoice(invoice_page: str) -> Dict[str, str]:
         "MANDANT_VOLLNAME": "",
         "MANDANT_STRASSE": "",
         "MANDANT_PLZ_ORT": "",
+        "ANSPRECHPARTNER_ANREDE": "",
+        "ANSPRECHPARTNER_NAME": "",
+        "ANSPRECHPARTNER_VORNAME": "",
+        "ANSPRECHPARTNER_NACHNAME": "",
         "VORSTEUERABZUG_RAW": "",
         "VORSTEUERBERECHTIGUNG": "",
         "GENDERN1": "",
@@ -610,7 +458,6 @@ def _extract_claimant_from_invoice(invoice_page: str) -> Dict[str, str]:
     if not invoice_page:
         return result
 
-    # Bereich zwischen Absender und Rechnung Nr.
     block = _search_first(
         invoice_page,
         [
@@ -632,6 +479,7 @@ def _extract_claimant_from_invoice(invoice_page: str) -> Dict[str, str]:
 
     for line in ls[1:]:
         m = re.match(r"^(Herrn?|Frau)\s+(.+)$", line, flags=re.I)
+
         if m:
             anrede = _normalize_anrede(m.group(1))
             person = _one_line(m.group(2))
@@ -645,6 +493,11 @@ def _extract_claimant_from_invoice(invoice_page: str) -> Dict[str, str]:
             strasse = line
 
     vorname, nachname = _split_person(person)
+
+    result["ANSPRECHPARTNER_ANREDE"] = anrede
+    result["ANSPRECHPARTNER_NAME"] = person
+    result["ANSPRECHPARTNER_VORNAME"] = vorname
+    result["ANSPRECHPARTNER_NACHNAME"] = nachname
 
     result["MANDANT_ANREDE"] = anrede
     result["MANDANT_FIRMA"] = _one_line(firma)
@@ -665,6 +518,7 @@ def _extract_claimant_from_invoice(invoice_page: str) -> Dict[str, str]:
         result["GENDER1"] = "Herr"
         result["GENDER2"] = "Herrn"
         result["GENDERN"] = f"Herr {nachname}"
+
     elif anrede == "Frau" and nachname:
         result["GENDERN1"] = f"Sehr geehrte Frau {nachname},"
         result["GENDERN2"] = f"Frau {person}"
@@ -675,10 +529,6 @@ def _extract_claimant_from_invoice(invoice_page: str) -> Dict[str, str]:
     return result
 
 
-# ------------------------------------------------------------
-# Hauptfunktion
-# ------------------------------------------------------------
-
 def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
     pages = list(pages or [])
     full = "\n".join(pages)
@@ -687,7 +537,6 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
     summary_page = _get_page(pages, "Zusammenfassung", "Reparaturkosten")
     beteiligte_page = _get_page(pages, "Beteiligte", "Vorsteuerabzug")
     vehicle_page = _get_page(pages, "Fahrzeugdaten", "Amtliches Kennzeichen")
-    beurteilung_page = _get_page(pages, "Beurteilung", "Schadenklasse")
 
     data: Dict[str, Any] = {
         "_PARSER": "nfz_standard",
@@ -705,6 +554,11 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
         "MANDANT_STRASSE": "",
         "MANDANT_PLZ_ORT": "",
 
+        "ANSPRECHPARTNER_ANREDE": "",
+        "ANSPRECHPARTNER_NAME": "",
+        "ANSPRECHPARTNER_VORNAME": "",
+        "ANSPRECHPARTNER_NACHNAME": "",
+
         "GENDERN1": "",
         "GENDERN2": "",
         "GENDER1": "",
@@ -713,6 +567,7 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
 
         "AKTENZEICHEN": "",
         "RECHNUNGSNUMMER": "",
+
         "KENNZEICHEN": "",
         "KENNZEICHEN_MANDANT": "",
         "EIGENES_KENNZEICHEN": "",
@@ -723,21 +578,22 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
         "MODELL": "",
         "VIN": "",
 
-        "VRSICHERUNG": "",
         "VERSICHERUNG": "",
+        "VRSICHERUNG": "",
         "VER_STRASSE": "",
         "VER_ORT": "",
-        
+
         "UNFALLGEGNER_NAME": "",
         "UNFALLGEGNER_STRASSE": "",
         "UNFALLGEGNER_PLZ_ORT": "",
         "ANSPRUCHSGEGNER": "",
-        
+
         "SCHADENSNUMMER": "",
 
         "UNFALL_DATUM": "",
         "UNFALL_UHRZEIT": "",
         "UNFALL_ORT": "",
+
         "AUFTRAG_DATUM": "",
         "GUTACHTEN_DATUM": "",
         "HEUTDATUM": "",
@@ -750,6 +606,7 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
 
         "SCHADENART": "",
         "REPARATURSCHADEN": "",
+
         "REPARATURKOSTEN": "",
         "REPARATURKOSTEN_NETTO": "",
         "REPARATURKOSTEN_BRUTTO": "",
@@ -788,14 +645,13 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
 
     warnings: List[str] = []
 
-    # 1) Mandant: Erst Beteiligte-Seite, dann Rechnung als Fallback
     claimant = _extract_claimant_from_beteiligte_page(beteiligte_page)
+
     if not claimant.get("MANDANT_NAME"):
         claimant = _extract_claimant_from_invoice(invoice_page)
 
     data.update(claimant)
 
-    # 2) Aktenzeichen / Rechnung
     data["AKTENZEICHEN"] = _search_first(
         full,
         [
@@ -807,10 +663,11 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
 
     data["RECHNUNGSNUMMER"] = _search_first(
         invoice_page or full,
-        [r"Rechnung\s+Nr\.\s*(NFZ-\d{6}-\d+)"],
+        [
+            r"Rechnung\s+Nr\.\s*(NFZ-\d{6}-\d+)",
+        ],
     ) or data["AKTENZEICHEN"]
 
-    # 3) Datum
     data["GUTACHTEN_DATUM"] = _search_first(
         full,
         [
@@ -833,7 +690,6 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
     data["FRIST_DATUM"] = _add_days(today, 14)
     data["FIRST_DATUM"] = data["FRIST_DATUM"]
 
-    # 4) Unfall
     data["UNFALL_DATUM"] = _search_first(
         beteiligte_page or full,
         [
@@ -844,22 +700,25 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
 
     data["UNFALL_UHRZEIT"] = _search_first(
         beteiligte_page or full,
-        [r"Uhrzeit\s+(\d{1,2}:\d{2}\s*Uhr)"],
+        [
+            r"Uhrzeit\s+(\d{1,2}:\d{2}\s*Uhr)",
+        ],
     )
 
-    # Ort kann im PDF-Zeilentext zweizeilig sein
-    data["UNFALL_ORT"] = _one_line(
-        _search_first(
-            beteiligte_page or full,
-            [
-                r"Unfall\s+Datum\s+\d{2}\.\d{2}\.\d{4}\s*\nUhrzeit\s+[^\n]+\nOrt\s+(.+?)(?:\nDatum|\nBesichtigung)",
-                r"Uhrzeit\s+[^\n]+\nOrt\s+(.+?)(?:\nDatum|\nBesichtigung)",
-                r"Ort\s+(Poco\s+Einrichtungsmärkte.+?)(?:\nDatum|\nBesichtigung)",
-            ],
+    data["UNFALL_ORT"] = (
+        _extract_unfall_ort_nfz_standard(beteiligte_page)
+        or _one_line(
+            _search_first(
+                beteiligte_page or full,
+                [
+                    r"Unfall\s+Datum\s+\d{2}\.\d{2}\.\d{4}\s*\nUhrzeit\s+[^\n]+\nOrt\s+(.+?)(?:\nDatum|\nBesichtigung)",
+                    r"Uhrzeit\s+[^\n]+\nOrt\s+(.+?)(?:\nDatum|\nBesichtigung)",
+                    r"Ort\s+(Poco\s+Einrichtungsmärkte.+?)(?:\nDatum|\nBesichtigung)",
+                ],
+            )
         )
     )
 
-    # 5) Fahrzeug
     kennzeichen = _search_first(
         vehicle_page or invoice_page or full,
         [
@@ -874,13 +733,13 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
     data["KENNZEICHEN"] = kennzeichen
     data["KENNZEICHEN_MANDANT"] = kennzeichen
     data["EIGENES_KENNZEICHEN"] = kennzeichen
-
-    # Wichtig: Gegnerkennzeichen nicht mit Mandantenkennzeichen befüllen!
     data["KENNZEICHEN_GEGNER"] = ""
 
     hersteller = _search_first(
         vehicle_page or full,
-        [r"Hersteller\s+(.+?)\n"],
+        [
+            r"Hersteller\s+(.+?)\n",
+        ],
     )
 
     modell = _search_first(
@@ -900,7 +759,9 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
         data["FAHRZEUGTYP"] = _one_line(
             _search_first(
                 invoice_page or full,
-                [r"Fahrzeug\s+(.+?)\nKennzeichen"],
+                [
+                    r"Fahrzeug\s+(.+?)\nKennzeichen",
+                ],
             )
         )
 
@@ -913,20 +774,13 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
         ],
     )
 
-    # 6) Gegner / Versicherung
-    # 6) Gegner / Versicherung
-
-    # Unfallgegner immer separat lesen
     unfallgegner = _extract_unfallgegner_nfz_standard(beteiligte_page)
-    
+
     data["UNFALLGEGNER_NAME"] = unfallgegner.get("UNFALLGEGNER_NAME", "")
     data["UNFALLGEGNER_STRASSE"] = unfallgegner.get("UNFALLGEGNER_STRASSE", "")
     data["UNFALLGEGNER_PLZ_ORT"] = unfallgegner.get("UNFALLGEGNER_PLZ_ORT", "")
     data["ANSPRUCHSGEGNER"] = data["UNFALLGEGNER_NAME"]
-    
-    # Echte Versicherung suchen
-    # Wichtig: NICHT "Versicherter" verwenden, weil das bei deinem PDF Poco ist,
-    # aber keine Versicherung.
+
     versicherung_name = _search_first(
         beteiligte_page or full,
         [
@@ -934,7 +788,7 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
             r"\nVersicherung\s+(.+?)\n",
         ],
     )
-    
+
     versicherung_strasse = _search_first(
         beteiligte_page or full,
         [
@@ -942,7 +796,7 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
             r"\nVersicherung\s+.+?\nStraße\s+(.+?)\nPLZ Ort",
         ],
     )
-    
+
     versicherung_ort = _search_first(
         beteiligte_page or full,
         [
@@ -950,39 +804,33 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
             r"\nVersicherung\s+.+?\n(?:Straße\s+.+?\n)?PLZ Ort\s+(.+?)\n",
         ],
     )
-    
-    # Wenn echte Versicherung vorhanden: Versicherung verwenden
+
     if versicherung_name:
         data["VERSICHERUNG"] = _one_line(versicherung_name)
         data["VRSICHERUNG"] = _one_line(versicherung_name)
         data["VER_STRASSE"] = _one_line(versicherung_strasse)
         data["VER_ORT"] = _one_line(versicherung_ort)
-    
-    # Wenn keine Versicherung vorhanden: Unfallgegner als Ersatz verwenden
     else:
         data["VERSICHERUNG"] = data["UNFALLGEGNER_NAME"]
         data["VRSICHERUNG"] = data["UNFALLGEGNER_NAME"]
         data["VER_STRASSE"] = data["UNFALLGEGNER_STRASSE"]
         data["VER_ORT"] = data["UNFALLGEGNER_PLZ_ORT"]
-    
-        data["SCHADENSNUMMER"] = _search_first(
-            full,
-            [
-                r"Schadennummer\s*[:\-]?\s*([A-Z0-9][A-Z0-9\s\-\/]{5,40})",
-                r"Schaden-?Nr\.\s*[:\-]?\s*([A-Z0-9][A-Z0-9\s\-\/]{5,40})",
-            ],
-        )
 
-    # 7) Schadenart
-    if re.search(r"Es\s+handelt\s+sich\s+um\s+einen\s+Reparaturschaden", full, flags=re.I) or \
-       re.search(r"Schadenklasse\s*:\s*Reparaturschaden", full, flags=re.I):
+    data["SCHADENSNUMMER"] = _search_first(
+        full,
+        [
+            r"Schadennummer\s*[:\-]?\s*([A-Z0-9][A-Z0-9\s\-\/]{5,40})",
+            r"Schaden-?Nr\.\s*[:\-]?\s*([A-Z0-9][A-Z0-9\s\-\/]{5,40})",
+        ],
+    )
+
+    if (
+        re.search(r"Es\s+handelt\s+sich\s+um\s+einen\s+Reparaturschaden", full, flags=re.I)
+        or re.search(r"Schadenklasse\s*:\s*Reparaturschaden", full, flags=re.I)
+    ):
         data["SCHADENART"] = "Reparaturschaden"
         data["REPARATURSCHADEN"] = "Ja"
-    else:
-        data["SCHADENART"] = ""
-        data["REPARATURSCHADEN"] = ""
 
-    # 8) Reparaturkosten
     money_source = summary_page + "\n" + full
 
     rep_netto = _extract_money(
@@ -1008,7 +856,6 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
     data["SCHADENHOEHE_NETTO"] = rep_netto
     data["SCHADENHOEHE_BRUTTO"] = rep_brutto
 
-    # 9) WBW / Restwert
     data["WBW"] = _extract_money(
         money_source,
         [
@@ -1028,7 +875,6 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
             ],
         )
 
-    # 10) Wertminderung
     if re.search(r"Merkantiler\s+Minderwert\s*\(keiner\)", full, flags=re.I):
         data["WERTMINDERUNG"] = "0,00 €"
         data["WERTMINDERUNG_NAME"] = "Merkantiler Minderwert"
@@ -1041,69 +887,12 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
                 r"Wertminderung\s*[:\-]?\s*([0-9][0-9\.\, ]*)\s*€",
             ],
         )
+
         data["WERTMINDERUNG"] = minderwert or "0,00 €"
         data["WERTMINDERUNG_BETRAG"] = minderwert or "0,00 €"
         data["WERTMINDERUNG_NAME"] = "Merkantiler Minderwert" if minderwert else ""
 
-    # 11) Gutachterkosten aus Rechnung
     gutachter_netto = _extract_money(
         invoice_page or full,
-        [r"Gesamtbetrag\s+ohne\s+MwSt\.\s*([0-9][0-9\.\, ]*)\s*€?"],
-    )
-
-    gutachter_brutto = _extract_money(
-        invoice_page or full,
-        [r"Gesamtbetrag\s+inkl\.\s+MwSt\.\s*([0-9][0-9\.\, ]*)\s*€?"],
-    )
-
-    data["GUTACHTERKOSTEN_NETTO"] = gutachter_netto
-    data["GUTACHTERKOSTEN_BRUTTO"] = gutachter_brutto
-
-    # 12) Netto-/Brutto-Entscheidung
-    vorsteuer_ja = data.get("VORSTEUERBERECHTIGUNG") == "Ja"
-
-    if vorsteuer_ja:
-        data["REPARATURKOSTEN"] = rep_netto or rep_brutto
-        data["GUTACHTERKOSTEN"] = gutachter_netto or gutachter_brutto
-    else:
-        data["REPARATURKOSTEN"] = rep_brutto or rep_netto
-        data["GUTACHTERKOSTEN"] = gutachter_brutto or gutachter_netto
-
-    # 13) Summenlogik Reparaturschaden
-    data["KOSTENSUMME_REPARATUR"] = _sum_eur(
-        data["REPARATURKOSTEN"],
-        data["GUTACHTERKOSTEN"],
-        data["WERTMINDERUNG"],
-        data["KOSTENPAUSCHALE"],
-        data["MELDUNGSKOSTEN"],
-        data["ZUSATZKOSTEN_BETRAG1"],
-        data["ZUSATZKOSTEN_BETRAG2"],
-        data["ZUSATZKOSTEN_BETRAG3"],
-    )
-
-    data["KOSTENSUMME_X"] = data["KOSTENSUMME_REPARATUR"]
-
-    # Reparaturschaden: diese Totalschaden-Felder bleiben leer
-    data["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
-    data["KOSTENSUMME_TOTALSCHADEN"] = ""
-
-    # 14) Plausibilitätsprüfung
-    required = ["MANDANT_NAME", "AKTENZEICHEN", "KENNZEICHEN", "REPARATURKOSTEN", "WBW"]
-
-    for key in required:
-        if not data.get(key):
-            warnings.append(f"{key} nicht gefunden")
-
-    # Harte Schutzprüfung: Michael Hohlwein darf nicht Mandant werden
-    if re.search(r"michael\s+hohlwein", data.get("MANDANT_NAME", ""), flags=re.I):
-        data["_OK"] = False
-        warnings.append("Mandant wurde fälschlich als Michael Hohlwein erkannt – Anspruchstellerblock prüfen")
-
-    if warnings:
-        data["_OK"] = False
-        data["_WARNINGS"] = "; ".join(warnings)
-    else:
-        data["_OK"] = True
-        data["_WARNINGS"] = ""
-
-    return data
+        [
+            r"Gesamtbetrag\s+ohne\s+MwSt\
