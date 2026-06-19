@@ -971,6 +971,76 @@ def derive_fields(extracted: Dict[str, Any]) -> Dict[str, Any]:
     else:
         m = re.search(r"[A-Z0-9\/\-]{6,}", schadensnummer)
         d["SCHADENSNUMMER"] = m.group(0) if m else ""
+        # ===================================================
+    # NFZ-STANDARD / REPARATURSCHADEN: einfache Korrektur
+    # ===================================================
+    if extracted.get("_PARSER") == "nfz_standard":
+
+        firma = str(
+            extracted.get("MANDANT_FIRMA")
+            or extracted.get("MANDANT_NAME")
+            or ""
+        ).strip()
+
+        ansprechpartner = str(
+            extracted.get("ANSPRECHPARTNER_NAME")
+            or " ".join(
+                x for x in [
+                    extracted.get("MANDANT_VORNAME", ""),
+                    extracted.get("MANDANT_NACHNAME", ""),
+                ]
+                if x
+            )
+        ).strip()
+
+        # Firma ist Mandant
+        if firma:
+            d["MANDANT_NAME"] = firma
+
+        # Deine gewünschte Schreibweise:
+        # {{MANDANT_VORNAME}} {{MANDANT_NACHNAME}}
+        # => Berthold Richter Geschäftsführer von Kraftverkehr Leipzig GmbH
+        if firma and ansprechpartner:
+            d["MANDANT_VORNAME"] = f"{ansprechpartner} Geschäftsführer von"
+            d["MANDANT_NACHNAME"] = firma
+            d["MANDANT_VOLLNAME"] = f"{ansprechpartner} Geschäftsführer von {firma}"
+        elif firma:
+            d["MANDANT_VORNAME"] = ""
+            d["MANDANT_NACHNAME"] = firma
+            d["MANDANT_VOLLNAME"] = firma
+
+        # Reparaturschaden ist Status, kein Geldbetrag
+        d["SCHADENART"] = "Reparaturschaden"
+        d["REPARATURSCHADEN"] = "Ja"
+
+        # Bei Reparaturschaden keine Totalschadenfelder
+        d["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
+        d["KOSTENSUMME_TOTALSCHADEN"] = ""
+
+        # Kennzeichen Gegner darf nicht identisch mit Mandantenkennzeichen sein
+        eigenes = str(
+            extracted.get("KENNZEICHEN_MANDANT")
+            or extracted.get("EIGENES_KENNZEICHEN")
+            or extracted.get("KENNZEICHEN")
+            or ""
+        ).strip()
+
+        gegner = str(extracted.get("KENNZEICHEN_GEGNER") or "").strip()
+
+        def _norm_plate(x: str) -> str:
+            return re.sub(r"[^A-Z0-9]", "", str(x or "").upper())
+
+        d["KENNZEICHEN"] = eigenes
+        d["KENNZEICHEN_MANDANT"] = eigenes
+        d["EIGENES_KENNZEICHEN"] = eigenes
+
+        if not gegner or _norm_plate(gegner) == _norm_plate(eigenes):
+            d["KENNZEICHEN_GEGNER"] = ""
+        else:
+            d["KENNZEICHEN_GEGNER"] = gegner
+
+        # Reparatursumme ist die relevante Gesamtsumme
+        d["KOSTENSUMME_X"] = d.get("KOSTENSUMME_REPARATUR", "")
 
     return d
 
