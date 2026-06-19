@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 from typing import Dict, Any
-
 import re
-
-from typing import Dict, Any
 
 import gutachten_extractor as gx
 import schnur_extractor as sx
@@ -30,7 +27,6 @@ def extract_from_pdf_bytes(
         )
 
         derived = derive_with_existing_logic(extracted)
-
         return {**extracted, **derived}
 
     # Stotko
@@ -38,21 +34,13 @@ def extract_from_pdf_bytes(
         text = gx.pdf_to_text(pdf_bytes)
         pages = gx._split_pages(text)
 
-    extracted = ns.parse_nfz_standard(
-        pages,
-        pdf_source=pdf_bytes,
-    )
-    
-    extracted["_PARSER"] = "nfz_standard"
-    extracted["_PARSER_VARIANTE"] = "reparaturschaden"
-    
-    derived = derive_with_existing_logic(extracted)
-    
-    result = {**extracted, **derived}
-    
-    result = fix_nfz_standard_after_derive(result, extracted)
-    
-    return result
+        extracted = stx.parse_stotko(
+            pages,
+            pdf_source=pdf_bytes,
+        )
+
+        derived = derive_with_existing_logic(extracted)
+        return {**extracted, **derived}
 
     # GutachterExpress
     if gutachter_key == "gutachterexpress":
@@ -60,107 +48,33 @@ def extract_from_pdf_bytes(
         text = gx.pdf_to_text(pdf_bytes)
         pages = gx._split_pages(text)
 
+        # ===================================================
+        # NFZ STANDARD / REPARATURSCHADEN
+        # ===================================================
         if template_label == "Nutzfahrzeuge Standard":
 
-    extracted = ns.parse_nfz_standard(
-        pages,
-        pdf_source=pdf_bytes,
-    )
+            extracted = ns.parse_nfz_standard(
+                pages,
+                pdf_source=pdf_bytes,
+            )
 
-    extracted["_PARSER"] = "nfz_standard"
-    extracted["_PARSER_VARIANTE"] = "reparaturschaden"
+            extracted["_PARSER"] = "nfz_standard"
+            extracted["_PARSER_VARIANTE"] = "reparaturschaden"
 
-    # derive_fields bleibt wie bisher aktiv
-    derived = derive_with_existing_logic(extracted)
+            # derive_fields bleibt wie bisher aktiv
+            derived = derive_with_existing_logic(extracted)
 
-    result = {**extracted, **derived}
+            result = {**extracted, **derived}
 
-    # ===================================================
-    # NFZ-STANDARD / REPARATURSCHADEN: Felder schützen
-    # ===================================================
-    # derive_fields() ist allgemein und überschreibt sonst:
-    # - Firma wird als Person gesplittet
-    # - REPARATURSCHADEN wird zu Geldbetrag
-    # - Totalschadenfelder werden befüllt
-    # - Gegnerkennzeichen wird eigenes Kennzeichen
-    protected_keys = [
-        "MANDANT_ANREDE",
-        "MANDANT_FIRMA",
-        "MANDANT_NAME",
-        "MANDANT_VORNAME",
-        "MANDANT_NACHNAME",
-        "MANDANT_TITEL",
-        "MANDANT_VOLLNAME",
-        "MANDANT_STRASSE",
-        "MANDANT_PLZ_ORT",
+            # Danach nur NFZ-Standard-Fehler korrigieren
+            result = fix_nfz_standard_after_derive(result, extracted)
 
-        "AKTENZEICHEN",
-        "RECHNUNGSNUMMER",
+            return result
 
-        "KENNZEICHEN",
-        "KENNZEICHEN_MANDANT",
-        "EIGENES_KENNZEICHEN",
-
-        "FAHRZEUGTYP",
-        "HERSTELLER",
-        "MODELL",
-        "VIN",
-
-        "SCHADENART",
-        "REPARATURSCHADEN",
-
-        "REPARATURKOSTEN",
-        "REPARATURKOSTEN_NETTO",
-        "REPARATURKOSTEN_BRUTTO",
-        "SCHADENHOEHE_NETTO",
-        "SCHADENHOEHE_BRUTTO",
-
-        "WBW",
-        "RESTWERT",
-
-        "GUTACHTERKOSTEN",
-        "GUTACHTERKOSTEN_NETTO",
-        "GUTACHTERKOSTEN_BRUTTO",
-
-        "KOSTENSUMME_REPARATUR",
-        "KOSTENSUMME_X",
-    ]
-
-    for key in protected_keys:
-        if extracted.get(key) not in (None, ""):
-            result[key] = extracted.get(key)
-
-    # ===================================================
-    # Harte Reparaturschaden-Korrekturen
-    # ===================================================
-
-    result["SCHADENART"] = "Reparaturschaden"
-    result["REPARATURSCHADEN"] = "Ja"
-
-    # Bei Reparaturschaden dürfen diese Totalschadenfelder leer bleiben
-    result["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
-    result["KOSTENSUMME_TOTALSCHADEN"] = ""
-
-    # Im NFZ-Standard-Gutachten ist MER KV 50 das eigene Kennzeichen.
-    # Gegnerkennzeichen ist nicht vorhanden.
-    result["KENNZEICHEN_GEGNER"] = ""
-
-    result["KENNZEICHEN"] = (
-        extracted.get("KENNZEICHEN_MANDANT")
-        or extracted.get("EIGENES_KENNZEICHEN")
-        or extracted.get("KENNZEICHEN")
-        or ""
-    )
-
-    result["KENNZEICHEN_MANDANT"] = result["KENNZEICHEN"]
-    result["EIGENES_KENNZEICHEN"] = result["KENNZEICHEN"]
-
-    # KOSTENSUMME_X soll bei Reparaturschaden die Reparatursumme sein
-    result["KOSTENSUMME_X"] = result.get("KOSTENSUMME_REPARATUR", "")
-
-    return result
-
-        elif template_label == "Nutzfahrzeuge Totalschaden":
+        # ===================================================
+        # NFZ TOTALSCHADEN
+        # ===================================================
+        if template_label == "Nutzfahrzeuge Totalschaden":
 
             extracted = nt.parse_nfz_totalschaden(
                 pages,
@@ -169,14 +83,37 @@ def extract_from_pdf_bytes(
 
             extracted["_PARSER"] = "nfz_totalschaden"
 
-        else:
-            return gx.extract_from_pdf_bytes(pdf_bytes)
+            derived = derive_with_existing_logic(extracted)
 
-        derived = derive_with_existing_logic(extracted)
+            result = {**extracted, **derived}
 
-        return {**extracted, **derived}
+            # Schutz wie bisher für NFZ Totalschaden
+            protected_keys = [
+                "MANDANT_VORNAME",
+                "MANDANT_NACHNAME",
+                "MANDANT_VOLLNAME",
+                "MANDANT_NAME",
+                "MANDANT_FIRMA",
+                "SCHADENSNUMMER",
+                "VERSICHERUNG",
+                "VER_STRASSE",
+                "VER_ORT",
+                "FAHRZEUGTYP",
+                "UNFALL_ORT",
+            ]
 
-    # Standard GutachterExpress
+            for key in protected_keys:
+                if extracted.get(key) not in (None, ""):
+                    result[key] = extracted.get(key)
+
+            result["VRSICHERUNG"] = result.get("VERSICHERUNG", "")
+
+            return result
+
+        # Sonstige GutachterExpress-Vorlagen
+        return gx.extract_from_pdf_bytes(pdf_bytes)
+
+    # Fallback
     return gx.extract_from_pdf_bytes(pdf_bytes)
 
 
@@ -187,11 +124,16 @@ def derive_with_existing_logic(extracted: Dict[str, Any]) -> Dict[str, Any]:
 def build_context(template_keys: set[str], extracted: Dict[str, Any]) -> Dict[str, Any]:
     return gx.build_context_for_template(template_keys, extracted)
 
-def fix_nfz_standard_after_derive(result: Dict[str, Any], extracted: Dict[str, Any]) -> Dict[str, Any]:
+
+def fix_nfz_standard_after_derive(
+    result: Dict[str, Any],
+    extracted: Dict[str, Any],
+) -> Dict[str, Any]:
     """
     Korrigiert nur NFZ Standard / Reparaturschaden nach gx.derive_fields().
     Alles andere bleibt unverändert.
     """
+
     if extracted.get("_PARSER") != "nfz_standard":
         return result
 
@@ -226,7 +168,7 @@ def fix_nfz_standard_after_derive(result: Dict[str, Any], extracted: Dict[str, A
         result["MANDANT_NAME"] = firma
         result["MANDANT_FIRMA"] = firma
 
-    # Deine gewünschte Schreibweise:
+    # Gewünschte Schreibweise:
     # {{MANDANT_VORNAME}} {{MANDANT_NACHNAME}}
     # => Berthold Richter Geschäftsführer von Kraftverkehr Leipzig GmbH
     if firma and ansprechpartner:
