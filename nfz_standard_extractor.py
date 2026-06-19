@@ -103,7 +103,7 @@ def _parse_eur(value: str) -> Optional[Decimal]:
         return None
 
 
-def _format_eur(value: Decimal | str | int | float | None) -> str:
+def _format_eur(value: Any) -> str:
     if value is None:
         return ""
 
@@ -543,7 +543,6 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
         "_PARSER_VARIANTE": "reparaturschaden",
         "_OK": True,
         "_WARNINGS": "",
-
         "MANDANT_ANREDE": "",
         "MANDANT_FIRMA": "",
         "MANDANT_NAME": "",
@@ -553,90 +552,71 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
         "MANDANT_VOLLNAME": "",
         "MANDANT_STRASSE": "",
         "MANDANT_PLZ_ORT": "",
-
         "ANSPRECHPARTNER_ANREDE": "",
         "ANSPRECHPARTNER_NAME": "",
         "ANSPRECHPARTNER_VORNAME": "",
         "ANSPRECHPARTNER_NACHNAME": "",
-
         "GENDERN1": "",
         "GENDERN2": "",
         "GENDER1": "",
         "GENDER2": "",
         "GENDERN": "",
-
         "AKTENZEICHEN": "",
         "RECHNUNGSNUMMER": "",
-
         "KENNZEICHEN": "",
         "KENNZEICHEN_MANDANT": "",
         "EIGENES_KENNZEICHEN": "",
         "KENNZEICHEN_GEGNER": "",
-
         "FAHRZEUGTYP": "",
         "HERSTELLER": "",
         "MODELL": "",
         "VIN": "",
-
         "VERSICHERUNG": "",
         "VRSICHERUNG": "",
         "VER_STRASSE": "",
         "VER_ORT": "",
-
         "UNFALLGEGNER_NAME": "",
         "UNFALLGEGNER_STRASSE": "",
         "UNFALLGEGNER_PLZ_ORT": "",
         "ANSPRUCHSGEGNER": "",
-
         "SCHADENSNUMMER": "",
-
         "UNFALL_DATUM": "",
         "UNFALL_UHRZEIT": "",
         "UNFALL_ORT": "",
-
         "AUFTRAG_DATUM": "",
         "GUTACHTEN_DATUM": "",
         "HEUTDATUM": "",
         "HEUTEDATUM": "",
         "FRIST_DATUM": "",
         "FIRST_DATUM": "",
-
         "VORSTEUERABZUG_RAW": "",
         "VORSTEUERBERECHTIGUNG": "",
-
         "SCHADENART": "",
         "REPARATURSCHADEN": "",
-
         "REPARATURKOSTEN": "",
         "REPARATURKOSTEN_NETTO": "",
         "REPARATURKOSTEN_BRUTTO": "",
         "SCHADENHOEHE_NETTO": "",
         "SCHADENHOEHE_BRUTTO": "",
-
         "WBW": "",
         "RESTWERT": "",
         "WIEDERBESCHAFFUNGSWERTAUFWAND": "",
-
         "GUTACHTERKOSTEN": "",
         "GUTACHTERKOSTEN_NETTO": "",
         "GUTACHTERKOSTEN_BRUTTO": "",
-
         "WERTMINDERUNG": "0,00 €",
         "WERTVERBESSERUNG": "",
         "KOSTENPAUSCHALE": "25,00 €",
         "MELDUNGSKOSTEN": "",
-
         "ZUSATZKOSTEN_BEZEICHNUNG1": "",
         "ZUSATZKOSTEN_BETRAG1": "",
         "ZUSATZKOSTEN_BEZEICHNUNG2": "",
         "ZUSATZKOSTEN_BETRAG2": "",
         "ZUSATZKOSTEN_BEZEICHNUNG3": "",
         "ZUSATZKOSTEN_BETRAG3": "",
-
         "KOSTENSUMME_REPARATUR": "",
         "KOSTENSUMME_TOTALSCHADEN": "",
         "KOSTENSUMME_X": "",
-
         "WERTVERBESSERUNG_NAME": "",
         "WERTBESSERUNG_BETRAG": "",
         "WERTMINDERUNG_NAME": "",
@@ -646,10 +626,8 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
     warnings: List[str] = []
 
     claimant = _extract_claimant_from_beteiligte_page(beteiligte_page)
-
     if not claimant.get("MANDANT_NAME"):
         claimant = _extract_claimant_from_invoice(invoice_page)
-
     data.update(claimant)
 
     data["AKTENZEICHEN"] = _search_first(
@@ -663,9 +641,7 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
 
     data["RECHNUNGSNUMMER"] = _search_first(
         invoice_page or full,
-        [
-            r"Rechnung\s+Nr\.\s*(NFZ-\d{6}-\d+)",
-        ],
+        [r"Rechnung\s+Nr\.\s*(NFZ-\d{6}-\d+)"],
     ) or data["AKTENZEICHEN"]
 
     data["GUTACHTEN_DATUM"] = _search_first(
@@ -700,9 +676,7 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
 
     data["UNFALL_UHRZEIT"] = _search_first(
         beteiligte_page or full,
-        [
-            r"Uhrzeit\s+(\d{1,2}:\d{2}\s*Uhr)",
-        ],
+        [r"Uhrzeit\s+(\d{1,2}:\d{2}\s*Uhr)"],
     )
 
     data["UNFALL_ORT"] = (
@@ -729,19 +703,12 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
     )
 
     kennzeichen = _normalize_plate(kennzeichen)
-
     data["KENNZEICHEN"] = kennzeichen
     data["KENNZEICHEN_MANDANT"] = kennzeichen
     data["EIGENES_KENNZEICHEN"] = kennzeichen
     data["KENNZEICHEN_GEGNER"] = ""
 
-    hersteller = _search_first(
-        vehicle_page or full,
-        [
-            r"Hersteller\s+(.+?)\n",
-        ],
-    )
-
+    hersteller = _search_first(vehicle_page or full, [r"Hersteller\s+(.+?)\n"])
     modell = _search_first(
         vehicle_page or full,
         [
@@ -757,12 +724,7 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
         data["FAHRZEUGTYP"] = f'{data["HERSTELLER"]} {data["MODELL"]}'
     else:
         data["FAHRZEUGTYP"] = _one_line(
-            _search_first(
-                invoice_page or full,
-                [
-                    r"Fahrzeug\s+(.+?)\nKennzeichen",
-                ],
-            )
+            _search_first(invoice_page or full, [r"Fahrzeug\s+(.+?)\nKennzeichen"])
         )
 
     data["VIN"] = _search_first(
@@ -870,9 +832,7 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
     else:
         data["RESTWERT"] = _extract_money(
             full,
-            [
-                r"Restwert\s*[:\-]?\s*([0-9][0-9\.\, ]*)\s*€",
-            ],
+            [r"Restwert\s*[:\-]?\s*([0-9][0-9\.\, ]*)\s*€"],
         )
 
     if re.search(r"Merkantiler\s+Minderwert\s*\(keiner\)", full, flags=re.I):
@@ -894,5 +854,55 @@ def parse_nfz_standard(pages, pdf_source=None) -> Dict[str, Any]:
 
     gutachter_netto = _extract_money(
         invoice_page or full,
-        [
-            r"Gesamtbetrag\s+ohne\s+MwSt\
+        [r"Gesamtbetrag\s+ohne\s+MwSt\.\s*([0-9][0-9\.\, ]*)\s*€?"],
+    )
+
+    gutachter_brutto = _extract_money(
+        invoice_page or full,
+        [r"Gesamtbetrag\s+inkl\.\s+MwSt\.\s*([0-9][0-9\.\, ]*)\s*€?"],
+    )
+
+    data["GUTACHTERKOSTEN_NETTO"] = gutachter_netto
+    data["GUTACHTERKOSTEN_BRUTTO"] = gutachter_brutto
+
+    vorsteuer_ja = data.get("VORSTEUERBERECHTIGUNG") == "Ja"
+
+    if vorsteuer_ja:
+        data["REPARATURKOSTEN"] = rep_netto or rep_brutto
+        data["GUTACHTERKOSTEN"] = gutachter_netto or gutachter_brutto
+    else:
+        data["REPARATURKOSTEN"] = rep_brutto or rep_netto
+        data["GUTACHTERKOSTEN"] = gutachter_brutto or gutachter_netto
+
+    data["KOSTENSUMME_REPARATUR"] = _sum_eur(
+        data["REPARATURKOSTEN"],
+        data["GUTACHTERKOSTEN"],
+        data["WERTMINDERUNG"],
+        data["KOSTENPAUSCHALE"],
+        data["MELDUNGSKOSTEN"],
+        data["ZUSATZKOSTEN_BETRAG1"],
+        data["ZUSATZKOSTEN_BETRAG2"],
+        data["ZUSATZKOSTEN_BETRAG3"],
+    )
+
+    data["KOSTENSUMME_X"] = data["KOSTENSUMME_REPARATUR"]
+    data["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
+    data["KOSTENSUMME_TOTALSCHADEN"] = ""
+
+    required = ["MANDANT_NAME", "AKTENZEICHEN", "KENNZEICHEN", "REPARATURKOSTEN", "WBW"]
+
+    for key in required:
+        if not data.get(key):
+            warnings.append(f"{key} nicht gefunden")
+
+    if re.search(r"michael\s+hohlwein", data.get("MANDANT_NAME", ""), flags=re.I):
+        warnings.append("Mandant wurde fälschlich als Michael Hohlwein erkannt")
+
+    if warnings:
+        data["_OK"] = False
+        data["_WARNINGS"] = "; ".join(warnings)
+    else:
+        data["_OK"] = True
+        data["_WARNINGS"] = ""
+
+    return data
