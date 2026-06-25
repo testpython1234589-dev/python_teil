@@ -122,3 +122,54 @@ def extract_values_from_pdf(
             "warnings": [f"Extraktion fehlgeschlagen: {exc}"],
             "missing_fields": [],
         }
+
+
+def map_template_label(template_key: str, gutachter_key: str) -> str:
+    """
+    Wandelt API-template_key in das Label um,
+    das dein bestehender gutachten_service erwartet.
+    """
+
+    key = (template_key or "").strip().lower()
+
+    if "nfz_standard" in key or "nutzfahrzeuge_standard" in key:
+        return "Nutzfahrzeuge Standard"
+
+    if "nfz_totalschaden" in key or "nutzfahrzeuge_totalschaden" in key:
+        return "Nutzfahrzeuge Totalschaden"
+
+    if "totalschaden" in key:
+        return "Schreiben Totalschaden"
+
+    return "Standard Schreiben"
+
+
+def map_template_file(template_key: str, gutachter_key: str) -> str:
+    """
+    Wandelt API-template_key in echten .docx-Dateinamen um.
+    Wenn bereits .docx übergeben wurde, wird dieser direkt genutzt.
+    """
+
+    key = (template_key or "").strip()
+
+    if key.endswith(".docx"):
+        return key
+
+    g = (gutachter_key or "gutachterexpress").strip().lower()
+
+    if g in {"express", "gutachterexpress"}:
+        if "totalschaden" in key.lower():
+            return "vorlage_schreibentotalschaden-1-express.docx"
+        return "vorlage_schreiben-1-express.docx"
+
+    if g == "schnur":
+        if "totalschaden" in key.lower():
+            return "vorlage_schreibentotalschaden-1-schnur.docx"
+        return "vorlage_schreiben-1-schnur.docx"
+
+    if g == "stotko":
+        if "totalschaden" in key.lower():
+            return "vorlage_schreibentotalschaden-1-stotko.docx"
+        return "vorlage_schreiben-1-stotko.docx"
+
+    return "vorlage_schreiben-1-express.docx"
