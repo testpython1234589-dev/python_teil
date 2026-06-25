@@ -53,46 +53,72 @@ def extract_values_from_pdf(
 ) -> Dict[str, Any]:
     """
     Zentrale API-Funktion für PDF → Werte.
-
-    WICHTIG:
-    Hier musst du ggf. den Funktionsaufruf an deinen bestehenden Code anpassen.
+    Nutzt die echte Logik aus deiner Streamlit-App:
+    gs.extract_from_pdf_bytes(...)
+    wb.get_template_vars(...)
+    gs.build_context(...)
     """
 
-    # Variante 1: Wenn dein gutachten_service eine zentrale Funktion hat
     try:
         import gutachten_service as gs
+        import word_backend as wb
 
-        # HIER ggf. anpassen:
-        # Beispielhafte mögliche Namen:
-        # raw = gs.process_gutachten(str(pdf_path), gutachter_key=gutachter_key, template_key=template_key)
-        # raw = gs.extract_gutachten(str(pdf_path), gutachter_key, template_key)
-        # raw = gs.run_extraction(str(pdf_path), gutachter_key, template_key)
+        # PDF als bytes lesen, weil dein bestehender Code pdf_bytes erwartet
+        pdf_bytes = pdf_path.read_bytes()
 
-        if hasattr(gs, "process_gutachten"):
-            raw = gs.process_gutachten(str(pdf_path), gutachter_key=gutachter_key, template_key=template_key)
-        elif hasattr(gs, "extract_gutachten"):
-            raw = gs.extract_gutachten(str(pdf_path), gutachter_key, template_key)
-        elif hasattr(gs, "run_extraction"):
-            raw = gs.run_extraction(str(pdf_path), gutachter_key, template_key)
-        else:
-            raise AttributeError(
-                "In gutachten_service.py wurde keine Funktion process_gutachten, "
-                "extract_gutachten oder run_extraction gefunden."
-            )
+        # API-Werte auf deine bestehenden Labels mappen
+        normalized_gutachter = (gutachter_key or "gutachterexpress").strip().lower()
 
-        normalized = normalize_result(raw)
+        template_label = map_template_label(template_key or "", normalized_gutachter)
+        template_file = map_template_file(template_key or "", normalized_gutachter)
+
+        # 1. echte Extraktion
+        extracted = gs.extract_from_pdf_bytes(
+            pdf_bytes,
+            normalized_gutachter,
+            template_label,
+        )
+
+        # 2. Template-Variablen aus Word lesen
+        template_keys = sorted(list(wb.get_template_vars(template_file)))
+
+        # 3. Kontext so bauen wie in Streamlit
+        ctx = gs.build_context(set(template_keys), extracted)
+
+        # 4. sinnvolle Warnungen sammeln
+        warnings = []
+        if not ctx:
+            warnings.append("Kontext ist leer. Prüfe Template-Name und Extraktion.")
+
+        missing_fields = [
+            key for key in template_keys
+            if str(ctx.get(key, "")).strip() == ""
+        ]
+
+        case_type = (
+            extracted.get("SCHADENART")
+            or extracted.get("_PARSER_VARIANTE")
+            or extracted.get("_PARSER")
+            or None
+        )
+
+        return {
+            "case_id": str(uuid.uuid4()),
+            "gutachter_key": normalized_gutachter,
+            "template_key": template_key,
+            "case_type": case_type,
+            "fields": ctx,
+            "warnings": warnings,
+            "missing_fields": missing_fields,
+        }
 
     except Exception as exc:
-        normalized = {
+        return {
+            "case_id": str(uuid.uuid4()),
+            "gutachter_key": gutachter_key,
+            "template_key": template_key,
             "case_type": None,
             "fields": {},
             "warnings": [f"Extraktion fehlgeschlagen: {exc}"],
             "missing_fields": [],
         }
-
-    return {
-        "case_id": str(uuid.uuid4()),
-        "gutachter_key": gutachter_key,
-        "template_key": template_key,
-        **normalized,
-    }
