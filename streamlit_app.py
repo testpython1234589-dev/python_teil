@@ -81,6 +81,10 @@ def ensure_state() -> None:
     st.session_state.setdefault("debug_extracted", {})
     st.session_state.setdefault("hinweis_button_clicked", False)
 
+    # NEU: Original-PDF speichern, damit handakte_backend.py
+    # daraus Telefon, E-Mail und IBAN aus den letzten Seiten lesen kann.
+    st.session_state.setdefault("pdf_bytes", b"")
+
 
 def clear_review_widget_state() -> None:
     for key in list(st.session_state.keys()):
@@ -110,6 +114,10 @@ def go_extract(clear_all: bool = False) -> None:
         st.session_state["template_keys"] = []
         st.session_state["extracted"] = {}
         st.session_state["debug_extracted"] = {}
+
+        # NEU: gespeicherte PDF-Bytes löschen
+        st.session_state["pdf_bytes"] = b""
+
         clear_review_widget_state()
 
 
@@ -283,6 +291,9 @@ if st.session_state["step"] == "extract":
         try:
             pdf_bytes = pdf_file.read()
 
+            # NEU: PDF-Bytes speichern für Handakte
+            st.session_state["pdf_bytes"] = pdf_bytes
+
             extracted = gs.extract_from_pdf_bytes(
                 pdf_bytes,
                 gutachter_key,
@@ -439,6 +450,12 @@ else:
             try:
                 handakte_path = hb.render_handakte_docx(
                     data=merged,
+
+                    # NEU: PDF-Bytes an Handaktenmodul übergeben.
+                    # Dadurch kann handakte_backend.py Telefon, E-Mail und IBAN
+                    # aus den letzten PDF-Seiten extrahieren.
+                    pdf_bytes=st.session_state.get("pdf_bytes", b""),
+
                     template_path="handakte_gutachten.docx",
                     output_dir="generated",
                 )
