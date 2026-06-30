@@ -10,10 +10,6 @@ import re
 from docxtpl import DocxTemplate
 
 
-# ---------------------------------------------------------------------------
-# Helfer
-# ---------------------------------------------------------------------------
-
 def _clean(value: Any) -> str:
     if value is None:
         return ""
@@ -31,27 +27,15 @@ def _has_value(value: Any) -> bool:
     return _clean(value) != ""
 
 
-# ---------------------------------------------------------------------------
-# PDF-Text aus letzten Seiten lesen
-# ---------------------------------------------------------------------------
-
 def pdf_last_pages_text(pdf_bytes: bytes, last_pages: int = 6) -> str:
     """
     Liest die letzten PDF-Seiten.
-
-    Dort stehen in deinem Gutachten meist:
-    - Vollmacht
-    - DSGVO
-    - Ihre Angaben
-    - Telefon
-    - E-Mail
-    - IBAN
+    Dort stehen häufig Telefonnummer, E-Mail und IBAN.
     """
 
     if not pdf_bytes:
         return ""
 
-    # Versuch 1: PyMuPDF
     try:
         import fitz  # PyMuPDF
 
@@ -68,7 +52,6 @@ def pdf_last_pages_text(pdf_bytes: bytes, last_pages: int = 6) -> str:
     except Exception:
         pass
 
-    # Versuch 2: pypdf
     try:
         from pypdf import PdfReader
 
@@ -86,22 +69,12 @@ def pdf_last_pages_text(pdf_bytes: bytes, last_pages: int = 6) -> str:
         return ""
 
 
-# ---------------------------------------------------------------------------
-# Extra-Werte für Handakte extrahieren
-# ---------------------------------------------------------------------------
-
 def extract_handakte_extra(pdf_bytes: Optional[bytes]) -> Dict[str, str]:
     """
-    Extrahiert zusätzliche Werte für die Handakte:
-
+    Extrahiert nur Zusatzwerte für die Handakte:
     - MANDANT_TELEFON
     - MANDANT_EMAIL
     - MANDANT_IBAN
-
-    Zusätzlich werden Synonyme gesetzt:
-    - TELEFON
-    - EMAIL
-    - IBAN
     """
 
     if not pdf_bytes:
@@ -114,18 +87,13 @@ def extract_handakte_extra(pdf_bytes: Optional[bytes]) -> Dict[str, str]:
 
     result: Dict[str, str] = {}
 
-    # Bereich "Ihre Angaben" bevorzugen.
-    # Falls nicht gefunden, nutzen wir trotzdem die letzten Seiten.
     section = text
 
     match = re.search(r"Ihre\s+Angaben(.+)$", text, flags=re.I | re.S)
-
     if match:
         section = match.group(1)
 
-    # -----------------------------------------------------------------------
     # E-Mail
-    # -----------------------------------------------------------------------
     email_match = re.search(
         r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}",
         section,
@@ -134,15 +102,12 @@ def extract_handakte_extra(pdf_bytes: Optional[bytes]) -> Dict[str, str]:
 
     if email_match:
         email = email_match.group(0).strip()
-
         result["MANDANT_EMAIL"] = email
         result["MANDANT_E_MAIL"] = email
         result["EMAIL"] = email
         result["E_MAIL"] = email
 
-    # -----------------------------------------------------------------------
     # IBAN
-    # -----------------------------------------------------------------------
     iban_match = re.search(
         r"\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){3,7}\b",
         section,
@@ -151,13 +116,10 @@ def extract_handakte_extra(pdf_bytes: Optional[bytes]) -> Dict[str, str]:
 
     if iban_match:
         iban = " ".join(iban_match.group(0).upper().split())
-
         result["MANDANT_IBAN"] = iban
         result["IBAN"] = iban
 
-    # -----------------------------------------------------------------------
     # Telefonnummer
-    # -----------------------------------------------------------------------
     phone_candidates = re.findall(
         r"(?<!\d)(?:\+49|0)[0-9][0-9\s\/\-\(\)]{5,}[0-9](?!\d)",
         section,
@@ -172,13 +134,11 @@ def extract_handakte_extra(pdf_bytes: Optional[bytes]) -> Dict[str, str]:
 
         digits = re.sub(r"\D", "", p)
 
-        # Schutz gegen falsche Treffer
         if len(digits) >= 7 and p not in cleaned_phones:
             cleaned_phones.append(p)
 
     if cleaned_phones:
         phone = cleaned_phones[0]
-
         result["MANDANT_TELEFON"] = phone
         result["TELEFON"] = phone
 
@@ -189,23 +149,7 @@ def extract_handakte_extra(pdf_bytes: Optional[bytes]) -> Dict[str, str]:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Vorsteuer-Kreuze
-# ---------------------------------------------------------------------------
-
 def build_vorsteuer_kreuze(data: Dict[str, Any]) -> Dict[str, str]:
-    """
-    Deine gewünschte Logik:
-
-    Wenn Vorsteuer-Wert 'nicht', 'nein', 'kein' enthält:
-        {{nicht_vstabzug}} = x
-        {{ja_vstabzug}} = leer
-
-    Sonst:
-        {{ja_vstabzug}} = x
-        {{nicht_vstabzug}} = leer
-    """
-
     raw = (
         data.get("VORSTEUERBERECHTIGUNG")
         or data.get("VORSTEUERABZUG")
@@ -228,29 +172,16 @@ def build_vorsteuer_kreuze(data: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Context für Word-Handakte bauen
-# ---------------------------------------------------------------------------
-
 def build_handakte_context(
     data: Dict[str, Any],
     pdf_bytes: Optional[bytes] = None,
 ) -> Dict[str, Any]:
     """
     Baut alle Platzhalterwerte für handakte_gutachten.docx.
-
-    data:
-        Normale extrahierte Werte + manuelle Review-Korrekturen.
-
-    pdf_bytes:
-        Original-PDF. Daraus liest dieses Modul zusätzlich:
-        Telefonnummer, E-Mail, IBAN.
     """
 
     extras = extract_handakte_extra(pdf_bytes)
 
-    # data hat Vorrang, weil dort manuelle Review-Korrekturen drin sind.
-    # extras ergänzen nur leere Felder.
     combined: Dict[str, Any] = dict(data)
 
     for key, value in extras.items():
@@ -297,16 +228,15 @@ def build_handakte_context(
     )
 
     context = {
-        # Datum / Akte
         "HEUTEDATUM": (
             _clean(combined.get("HEUTEDATUM"))
             or _clean(combined.get("HEUTDATUM"))
             or datetime.now().strftime("%d.%m.%Y")
         ),
+
         "AKTENZEICHEN": _clean(combined.get("AKTENZEICHEN")),
         "SCHADENSNUMMER": _clean(combined.get("SCHADENSNUMMER")),
 
-        # Mandant
         "MANDANT_ANREDE": _clean(combined.get("MANDANT_ANREDE")),
         "MANDANT_VORNAME": _clean(combined.get("MANDANT_VORNAME")),
         "MANDANT_NACHNAME": _clean(combined.get("MANDANT_NACHNAME")),
@@ -314,29 +244,24 @@ def build_handakte_context(
         "MANDANT_STRASSE": _clean(combined.get("MANDANT_STRASSE")),
         "MANDANT_PLZ_ORT": _clean(combined.get("MANDANT_PLZ_ORT")),
 
-        # Neue Handaktenfelder
         "MANDANT_TELEFON": telefon,
         "MANDANT_EMAIL": email,
         "MANDANT_IBAN": iban,
 
-        # Versicherung
         "VERSICHERUNG": _clean(combined.get("VERSICHERUNG")),
         "VER_STR": _clean(combined.get("VER_STR")) or _clean(combined.get("VER_STRASSE")),
         "VER_ORT": _clean(combined.get("VER_ORT")),
 
-        # Kennzeichen Gegner
-        # Achtung: Deine Word-Vorlage hat aktuell den Schreibfehler GEGENER.
-        # Deshalb wird dieser Platzhalter exakt unterstützt.
+        # Deine Word-Datei nutzt aktuell diesen Schreibfehler:
         "KENNZEICHEN_GEGENER": kennzeichen_gegner,
 
-        # Zusätzlich korrekt geschrieben, falls du später den Word-Platzhalter korrigierst.
+        # Korrekte Variante zusätzlich, falls du die Vorlage später korrigierst:
         "KENNZEICHEN_GEGNER": kennzeichen_gegner,
 
-        # Vorsteuer-Kreuze
         "ja_vstabzug": kreuze["ja_vstabzug"],
         "nicht_vstabzug": kreuze["nicht_vstabzug"],
 
-        # Synonyme für spätere Vorlagen
+        # Synonyme
         "TELEFON": telefon,
         "EMAIL": email,
         "E_MAIL": email,
@@ -345,10 +270,6 @@ def build_handakte_context(
 
     return context
 
-
-# ---------------------------------------------------------------------------
-# Word-Datei rendern
-# ---------------------------------------------------------------------------
 
 def render_handakte_docx(
     data: Dict[str, Any],
