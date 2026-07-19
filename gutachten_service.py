@@ -16,43 +16,40 @@ def extract_from_pdf_bytes(
     template_label: str,
 ) -> Dict[str, Any]:
 
-    # Schnur
-    if gutachter_key == "schnur":
-        text = gx.pdf_to_text(pdf_bytes)
-        pages = gx._split_pages(text)
+    text = gx.pdf_to_text(pdf_bytes)
+    pages = gx._split_pages(text)
 
+    # ===================================================
+    # SCHNUR
+    # ===================================================
+    if gutachter_key == "schnur":
         extracted = sx.parse_schnur(
             pages,
             pdf_source=pdf_bytes,
         )
 
-        derived = derive_with_existing_logic(extracted)
-        return {**extracted, **derived}
+        return recalculate_after_manual_edit(extracted)
 
-    # Stotko
+    # ===================================================
+    # STOTKO
+    # ===================================================
     if gutachter_key == "stotko":
-        text = gx.pdf_to_text(pdf_bytes)
-        pages = gx._split_pages(text)
-
         extracted = stx.parse_stotko(
             pages,
             pdf_source=pdf_bytes,
         )
 
-        derived = derive_with_existing_logic(extracted)
-        return {**extracted, **derived}
+        return recalculate_after_manual_edit(extracted)
 
-    # GutachterExpress
+    # ===================================================
+    # GUTACHTEREXPRESS
+    # ===================================================
     if gutachter_key == "gutachterexpress":
-
-        text = gx.pdf_to_text(pdf_bytes)
-        pages = gx._split_pages(text)
 
         # ===================================================
         # NFZ STANDARD / REPARATURSCHADEN
         # ===================================================
         if template_label == "Nutzfahrzeuge Standard":
-
             extracted = ns.parse_nfz_standard(
                 pages,
                 pdf_source=pdf_bytes,
@@ -61,59 +58,28 @@ def extract_from_pdf_bytes(
             extracted["_PARSER"] = "nfz_standard"
             extracted["_PARSER_VARIANTE"] = "reparaturschaden"
 
-            # derive_fields bleibt wie bisher aktiv
-            derived = derive_with_existing_logic(extracted)
-
-            result = {**extracted, **derived}
-
-            # Danach nur NFZ-Standard-Fehler korrigieren
-            result = fix_nfz_standard_after_derive(result, extracted)
-
-            return result
+            return recalculate_after_manual_edit(extracted)
 
         # ===================================================
         # NFZ TOTALSCHADEN
         # ===================================================
         if template_label == "Nutzfahrzeuge Totalschaden":
-
             extracted = nt.parse_nfz_totalschaden(
                 pages,
                 pdf_source=pdf_bytes,
             )
 
             extracted["_PARSER"] = "nfz_totalschaden"
+            extracted["_PARSER_VARIANTE"] = "totalschaden"
 
-            derived = derive_with_existing_logic(extracted)
-
-            result = {**extracted, **derived}
-
-            # Schutz wie bisher für NFZ Totalschaden
-            protected_keys = [
-                "MANDANT_VORNAME",
-                "MANDANT_NACHNAME",
-                "MANDANT_VOLLNAME",
-                "MANDANT_NAME",
-                "MANDANT_FIRMA",
-                "SCHADENSNUMMER",
-                "VERSICHERUNG",
-                "VER_STRASSE",
-                "VER_ORT",
-                "FAHRZEUGTYP",
-                "UNFALL_ORT",
-            ]
-
-            for key in protected_keys:
-                if extracted.get(key) not in (None, ""):
-                    result[key] = extracted.get(key)
-
-            result["VRSICHERUNG"] = result.get("VERSICHERUNG", "")
-
-            return result
+            return recalculate_after_manual_edit(extracted)
 
         # Sonstige GutachterExpress-Vorlagen
         return gx.extract_from_pdf_bytes(pdf_bytes)
 
-    # Fallback
+    # ===================================================
+    # FALLBACK
+    # ===================================================
     return gx.extract_from_pdf_bytes(pdf_bytes)
 
 
@@ -121,8 +87,146 @@ def derive_with_existing_logic(extracted: Dict[str, Any]) -> Dict[str, Any]:
     return gx.derive_fields(extracted)
 
 
-def build_context(template_keys: set[str], extracted: Dict[str, Any]) -> Dict[str, Any]:
-    return gx.build_context_for_template(template_keys, extracted)
+def recalculate_after_manual_edit(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Wird nach manueller Prüfung/Änderung genutzt.
+
+    Ablauf:
+    1. Manuell geprüfte Werte kommen rein.
+    2. Bei NFZ-Totalschaden wird zuerst die Vorsteuerlogik angewendet.
+    3. Danach werden Summen neu berechnet.
+    4. NFZ-Spezialfelder werden geschützt.
+    """
+
+    base = dict(data)
+
+    if base.get("_PARSER") == "nfz_totalschaden":
+        base = apply_nfz_totalschaden_value_logic(base)
+
+    derived = gx.derive_fields(base)
+    result = {**base, **derived}
+
+    if base.get("_PARSER") == "nfz_totalschaden":
+        result = fix_nfz_totalschaden_after_derive(result, base)
+
+    if base.get("_PARSER") == "nfz_standard":
+        result = fix_nfz_standard_after_derive(result, base)
+
+    return result
+
+
+def apply_nfz_totalschaden_value_logic(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    NFZ Totalschaden Steuerlogik:
+
+    Vorsteuerabzug Ja:
+        WBW_NETTO - RESTWERT_NETTO
+
+    Vorsteuerabzug Nein:
+        WBW_BRUTTO - RESTWERT_BRUTTO
+    """
+
+    d = dict(data)
+
+    vorsteuer = gx._normalize_yes_no(
+        str(
+            d.get("VORSTEUERABZUG_RAW")
+            or d.get("VORSTEUERBERECHTIGUNG")
+            or ""
+        )
+    )
+
+    d["VORSTEUERABZUG_RAW"] = vorsteuer
+
+    wbw = str(d.get("WBW", "") or "").strip()
+    restwert = str(d.get("RESTWERT", "") or "").strip()
+
+    wbw_netto = str(d.get("WBW_NETTO", "") or "").strip()
+    wbw_brutto = str(d.get("WBW_BRUTTO", "") or "").strip()
+
+    restwert_netto = str(d.get("RESTWERT_NETTO", "") or "").strip()
+    restwert_brutto = str(d.get("RESTWERT_BRUTTO", "") or "").strip()
+
+    # Falls der Nutzer im Review nur WBW / RESTWERT bearbeitet,
+    # wird dieser Wert passend in Netto/Brutto übernommen.
+    if vorsteuer == "Ja":
+        if wbw:
+            d["WBW_NETTO"] = wbw
+            wbw_netto = wbw
+
+        if restwert:
+            d["RESTWERT_NETTO"] = restwert
+            restwert_netto = restwert
+
+        d["WBW"] = wbw_netto or wbw_brutto
+        d["RESTWERT"] = restwert_netto or restwert_brutto
+
+    elif vorsteuer == "Nein":
+        if wbw:
+            d["WBW_BRUTTO"] = wbw
+            wbw_brutto = wbw
+
+        if restwert:
+            d["RESTWERT_BRUTTO"] = restwert
+            restwert_brutto = restwert
+
+        d["WBW"] = wbw_brutto or wbw_netto
+        d["RESTWERT"] = restwert_brutto or restwert_netto
+
+    return d
+
+
+def fix_nfz_totalschaden_after_derive(
+    result: Dict[str, Any],
+    extracted: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Schützt NFZ-Totalschaden-Felder nach gx.derive_fields().
+    """
+
+    if extracted.get("_PARSER") != "nfz_totalschaden":
+        return result
+
+    result = dict(result)
+
+    protected_keys = [
+        "MANDANT_ANREDE",
+        "MANDANT_VORNAME",
+        "MANDANT_NACHNAME",
+        "MANDANT_VOLLNAME",
+        "MANDANT_NAME",
+        "MANDANT_FIRMA",
+        "MANDANT_STRASSE",
+        "MANDANT_PLZ_ORT",
+        "SCHADENSNUMMER",
+        "VERSICHERUNG",
+        "VER_STRASSE",
+        "VER_ORT",
+        "VERSICHERUNGSNUMMER",
+        "FAHRZEUGTYP",
+        "UNFALL_DATUM",
+        "UNFALL_ORT",
+        "KENNZEICHEN_MANDANT",
+        "EIGENES_KENNZEICHEN",
+        "KENNZEICHEN",
+        "KENNZEICHEN_GEGNER",
+        "SCHADENHERGANG",
+        "WBW_BRUTTO",
+        "WBW_NETTO",
+        "RESTWERT_BRUTTO",
+        "RESTWERT_NETTO",
+    ]
+
+    for key in protected_keys:
+        if extracted.get(key) not in (None, ""):
+            result[key] = extracted.get(key)
+
+    result["VRSICHERUNG"] = result.get("VERSICHERUNG", "")
+
+    # Bei Totalschaden ist die Totalschadensumme die relevante Gesamtsumme.
+    result["KOSTENSUMME_X"] = result.get("KOSTENSUMME_TOTALSCHADEN", "")
+
+    return result
 
 
 def fix_nfz_standard_after_derive(
@@ -211,7 +315,7 @@ def fix_nfz_standard_after_derive(
     else:
         result["KENNZEICHEN_GEGNER"] = gegner
 
-    # Reparatursumme bleibt die relevante Summe
+    # Reparatursumme bleibt relevante Summe
     result["KOSTENSUMME_X"] = result.get("KOSTENSUMME_REPARATUR", "")
 
     # Unfallort aus Parser übernehmen, falls vorhanden
@@ -219,3 +323,7 @@ def fix_nfz_standard_after_derive(
         result["UNFALL_ORT"] = extracted.get("UNFALL_ORT")
 
     return result
+
+
+def build_context(template_keys: set[str], extracted: Dict[str, Any]) -> Dict[str, Any]:
+    return gx.build_context_for_template(template_keys, extracted)
