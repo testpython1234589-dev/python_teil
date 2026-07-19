@@ -19,36 +19,22 @@ def extract_from_pdf_bytes(
     text = gx.pdf_to_text(pdf_bytes)
     pages = gx._split_pages(text)
 
-    # ===================================================
-    # SCHNUR
-    # ===================================================
     if gutachter_key == "schnur":
         extracted = sx.parse_schnur(
             pages,
             pdf_source=pdf_bytes,
         )
-
         return recalculate_after_manual_edit(extracted)
 
-    # ===================================================
-    # STOTKO
-    # ===================================================
     if gutachter_key == "stotko":
         extracted = stx.parse_stotko(
             pages,
             pdf_source=pdf_bytes,
         )
-
         return recalculate_after_manual_edit(extracted)
 
-    # ===================================================
-    # GUTACHTEREXPRESS
-    # ===================================================
     if gutachter_key == "gutachterexpress":
 
-        # ===================================================
-        # NFZ STANDARD / REPARATURSCHADEN
-        # ===================================================
         if template_label == "Nutzfahrzeuge Standard":
             extracted = ns.parse_nfz_standard(
                 pages,
@@ -60,9 +46,6 @@ def extract_from_pdf_bytes(
 
             return recalculate_after_manual_edit(extracted)
 
-        # ===================================================
-        # NFZ TOTALSCHADEN
-        # ===================================================
         if template_label == "Nutzfahrzeuge Totalschaden":
             extracted = nt.parse_nfz_totalschaden(
                 pages,
@@ -74,12 +57,8 @@ def extract_from_pdf_bytes(
 
             return recalculate_after_manual_edit(extracted)
 
-        # Sonstige GutachterExpress-Vorlagen
         return gx.extract_from_pdf_bytes(pdf_bytes)
 
-    # ===================================================
-    # FALLBACK
-    # ===================================================
     return gx.extract_from_pdf_bytes(pdf_bytes)
 
 
@@ -87,15 +66,29 @@ def derive_with_existing_logic(extracted: Dict[str, Any]) -> Dict[str, Any]:
     return gx.derive_fields(extracted)
 
 
+def _same_money(a: Any, b: Any) -> bool:
+    """
+    Vergleicht Geldwerte stabil:
+    7.855,04 € == 7855.04
+    """
+    da = gx._parse_money(str(a or ""))
+    db = gx._parse_money(str(b or ""))
+
+    if da is not None and db is not None:
+        return da == db
+
+    return str(a or "").strip() == str(b or "").strip()
+
+
 def recalculate_after_manual_edit(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Wird nach manueller Prüfung/Änderung genutzt.
 
-    Ablauf:
-    1. Manuell geprüfte Werte kommen rein.
-    2. Bei NFZ-Totalschaden wird zuerst die Vorsteuerlogik angewendet.
-    3. Danach werden Summen neu berechnet.
-    4. NFZ-Spezialfelder werden geschützt.
+    Wichtig:
+    - Manuell geänderte Werte bleiben erhalten.
+    - Leere Felder überschreiben keine echten Werte.
+    - NFZ-Totalschaden nutzt bei Vorsteuer Ja netto.
+    - NFZ-Totalschaden nutzt bei Vorsteuer Nein brutto.
     """
 
     base = dict(data)
@@ -117,13 +110,17 @@ def recalculate_after_manual_edit(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def apply_nfz_totalschaden_value_logic(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    NFZ Totalschaden Steuerlogik:
+    NFZ-Totalschaden Steuerlogik:
 
     Vorsteuerabzug Ja:
         WBW_NETTO - RESTWERT_NETTO
 
     Vorsteuerabzug Nein:
         WBW_BRUTTO - RESTWERT_BRUTTO
+
+    Wichtig:
+    Wenn der Nutzer WBW oder RESTWERT manuell geändert hat,
+    wird dieser manuelle Wert NICHT wieder durch Netto/Brutto überschrieben.
     """
 
     d = dict(data)
@@ -147,31 +144,33 @@ def apply_nfz_totalschaden_value_logic(data: Dict[str, Any]) -> Dict[str, Any]:
     restwert_netto = str(d.get("RESTWERT_NETTO", "") or "").strip()
     restwert_brutto = str(d.get("RESTWERT_BRUTTO", "") or "").strip()
 
-    # Falls der Nutzer im Review nur WBW / RESTWERT bearbeitet,
-    # wird dieser Wert passend in Netto/Brutto übernommen.
     if vorsteuer == "Ja":
-        if wbw:
-            d["WBW_NETTO"] = wbw
-            wbw_netto = wbw
+        # Nur automatisch auf netto setzen, wenn WBW leer ist
+        # oder aktuell noch der Brutto-Wert drinsteht.
+        if not wbw or _same_money(wbw, wbw_brutto):
+            d["WBW"] = wbw_netto or wbw or wbw_brutto
 
-        if restwert:
-            d["RESTWERT_NETTO"] = restwert
-            restwert_netto = restwert
+        # Manuell geänderten WBW beibehalten
+        else:
+            d["WBW"] = wbw
 
-        d["WBW"] = wbw_netto or wbw_brutto
-        d["RESTWERT"] = restwert_netto or restwert_brutto
+        if not restwert or _same_money(restwert, restwert_brutto):
+            d["RESTWERT"] = restwert_netto or restwert or restwert_brutto
+        else:
+            d["RESTWERT"] = restwert
 
     elif vorsteuer == "Nein":
-        if wbw:
-            d["WBW_BRUTTO"] = wbw
-            wbw_brutto = wbw
+        # Nur automatisch auf brutto setzen, wenn WBW leer ist
+        # oder aktuell noch der Netto-Wert drinsteht.
+        if not wbw or _same_money(wbw, wbw_netto):
+            d["WBW"] = wbw_brutto or wbw or wbw_netto
+        else:
+            d["WBW"] = wbw
 
-        if restwert:
-            d["RESTWERT_BRUTTO"] = restwert
-            restwert_brutto = restwert
-
-        d["WBW"] = wbw_brutto or wbw_netto
-        d["RESTWERT"] = restwert_brutto or restwert_netto
+        if not restwert or _same_money(restwert, restwert_netto):
+            d["RESTWERT"] = restwert_brutto or restwert or restwert_netto
+        else:
+            d["RESTWERT"] = restwert
 
     return d
 
@@ -267,14 +266,10 @@ def fix_nfz_standard_after_derive(
         )
     ).strip()
 
-    # Mandant/Firma schützen
     if firma:
         result["MANDANT_NAME"] = firma
         result["MANDANT_FIRMA"] = firma
 
-    # Gewünschte Schreibweise:
-    # {{MANDANT_VORNAME}} {{MANDANT_NACHNAME}}
-    # => Berthold Richter Geschäftsführer von Kraftverkehr Leipzig GmbH
     if firma and ansprechpartner:
         result["MANDANT_VORNAME"] = f"{ansprechpartner} Geschäftsführer von"
         result["MANDANT_NACHNAME"] = firma
@@ -284,15 +279,12 @@ def fix_nfz_standard_after_derive(
         result["MANDANT_NACHNAME"] = firma
         result["MANDANT_VOLLNAME"] = firma
 
-    # Reparaturschaden ist Status, kein Geldbetrag
     result["SCHADENART"] = "Reparaturschaden"
     result["REPARATURSCHADEN"] = "Ja"
 
-    # Reparaturschaden: keine Totalschadenfelder
     result["WIEDERBESCHAFFUNGSWERTAUFWAND"] = ""
     result["KOSTENSUMME_TOTALSCHADEN"] = ""
 
-    # Eigenes Kennzeichen
     eigenes = str(
         extracted.get("KENNZEICHEN_MANDANT")
         or extracted.get("EIGENES_KENNZEICHEN")
@@ -304,7 +296,6 @@ def fix_nfz_standard_after_derive(
     result["KENNZEICHEN_MANDANT"] = eigenes
     result["EIGENES_KENNZEICHEN"] = eigenes
 
-    # Gegnerkennzeichen darf nicht Mandantenkennzeichen sein
     gegner = str(extracted.get("KENNZEICHEN_GEGNER") or "").strip()
 
     def norm_plate(x: str) -> str:
@@ -315,10 +306,8 @@ def fix_nfz_standard_after_derive(
     else:
         result["KENNZEICHEN_GEGNER"] = gegner
 
-    # Reparatursumme bleibt relevante Summe
     result["KOSTENSUMME_X"] = result.get("KOSTENSUMME_REPARATUR", "")
 
-    # Unfallort aus Parser übernehmen, falls vorhanden
     if extracted.get("UNFALL_ORT"):
         result["UNFALL_ORT"] = extracted.get("UNFALL_ORT")
 
