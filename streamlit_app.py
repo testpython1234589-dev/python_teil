@@ -68,6 +68,11 @@ EXTRA_REVIEW_KEYS = {
     "VORSTEUERABZUG_RAW",
     "VORSTEUERBERECHTIGUNG",
     "MANDANT_NAME",
+    "MANDANT_FIRMA",
+    "MANDANT_VORNAME",
+    "MANDANT_NACHNAME",
+    "MANDANT_VOLLNAME",
+    "VER_STRASSE",
     "VER_STR",
     "WBW",
     "RESTWERT",
@@ -75,12 +80,22 @@ EXTRA_REVIEW_KEYS = {
     "WBW_NETTO",
     "RESTWERT_BRUTTO",
     "RESTWERT_NETTO",
+    "REPARATURKOSTEN_NETTO",
+    "REPARATURKOSTEN_BRUTTO",
+    "REPARATURKOSTEN",
     "GUTACHTERKOSTEN_NETTO",
     "GUTACHTERKOSTEN_BRUTTO",
+    "GUTACHTERKOSTEN",
     "MELDUNGSKOSTEN",
+    "WIEDERBESCHAFFUNGSWERTAUFWAND",
     "KOSTENSUMME_TOTALSCHADEN",
     "KOSTENSUMME_REPARATUR",
     "KOSTENSUMME_X",
+}
+
+HIDDEN_REVIEW_KEYS = {
+    "_PARSER",
+    "_PARSER_VARIANTE",
 }
 
 
@@ -111,11 +126,19 @@ def clear_review_widget_state() -> None:
 
 
 def get_review_keys(template_keys: List[str], ctx: Dict[str, Any]) -> List[str]:
-    return list(
+    keys = (
         set(template_keys)
         | {k for k, v in ctx.items() if str(v).strip()}
         | EXTRA_REVIEW_KEYS
     )
+
+    keys = {
+        k for k in keys
+        if k not in HIDDEN_REVIEW_KEYS
+        and not str(k).startswith("_")
+    }
+
+    return list(keys)
 
 
 def load_review_widget_state(keys: List[str], ctx: Dict[str, Any]) -> None:
@@ -147,19 +170,40 @@ def go_extract(clear_all: bool = False) -> None:
 # Review / Neuberechnung
 # ---------------------------------------------------------------------------
 
-def collect_review_values() -> Dict[str, Any]:
+def collect_review_values_safely() -> Dict[str, Any]:
     """
-    Holt alle manuell bearbeiteten Review-Felder aus st.session_state.
+    Holt alle Review-Felder.
+
+    Wichtig:
+    Leere Review-Felder überschreiben vorhandene Werte NICHT.
+    Sonst verschwinden WBW, Gutachterkosten, Meldekosten usw.
     """
 
-    edited_ctx = dict(st.session_state.get("ctx", {}))
+    original = dict(st.session_state.get("extracted", {}))
+    current_ctx = dict(st.session_state.get("ctx", {}))
+
+    merged = {
+        **original,
+        **current_ctx,
+    }
 
     for key in list(st.session_state.keys()):
-        if key.startswith("rev_"):
-            real_key = key.replace("rev_", "", 1)
-            edited_ctx[real_key] = st.session_state[key]
+        if not key.startswith("rev_"):
+            continue
 
-    return edited_ctx
+        real_key = key.replace("rev_", "", 1)
+        value = st.session_state.get(key)
+        value_str = "" if value is None else str(value).strip()
+
+        old_value_str = "" if merged.get(real_key) is None else str(merged.get(real_key, "")).strip()
+
+        # Leeres Feld darf vorhandenen Wert NICHT löschen.
+        if value_str == "" and old_value_str != "":
+            continue
+
+        merged[real_key] = value
+
+    return merged
 
 
 def recalc_review_values() -> None:
@@ -167,32 +211,38 @@ def recalc_review_values() -> None:
     Nimmt manuelle Änderungen aus dem Review,
     rechnet Kosten/Summen neu
     und aktualisiert ctx + extracted.
+
+    Diese Funktion ist der zentrale Fix:
+    Es wird NICHT mehr nur mit dem Word-Kontext gerechnet,
+    sondern mit allen extrahierten + manuell bearbeiteten Feldern.
     """
 
-    edited_ctx = collect_review_values()
-
-    merged = {
-        **st.session_state.get("extracted", {}),
-        **edited_ctx,
-    }
+    merged = collect_review_values_safely()
 
     recalculated = gs.recalculate_after_manual_edit(merged)
 
     template_keys = set(st.session_state.get("template_keys", []))
-    new_ctx = gs.build_context(template_keys, recalculated)
+
+    # Word-Kontext bauen
+    word_ctx = gs.build_context(template_keys, recalculated)
+
+    # Für Review alle Werte behalten, nicht nur Word-Platzhalter.
+    full_ctx = {
+        **recalculated,
+        **word_ctx,
+    }
 
     st.session_state["extracted"] = recalculated
     st.session_state["debug_extracted"] = recalculated
-    st.session_state["ctx"] = new_ctx
+    st.session_state["ctx"] = full_ctx
 
-    # Widgets beim nächsten Rerun neu mit berechneten Werten laden
     st.session_state["reload_review_widgets"] = True
 
 
 def reload_review_widgets_if_needed() -> None:
     """
-    Lädt Review-Widgets neu, aber nur bevor sie gerendert werden.
-    Dadurch entstehen keine Streamlit-Session-State-Konflikte.
+    Lädt Review-Widgets nach Neuberechnung neu.
+    Muss passieren, bevor die Widgets gerendert werden.
     """
 
     if not st.session_state.get("reload_review_widgets"):
@@ -217,13 +267,18 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     st.subheader("✅ Überprüfung - alle Werte editierbar")
     st.caption("Passe Werte bei Bedarf an. Danach Werte neu berechnen oder Word endgültig erzeugen.")
 
-    updated = dict(ctx)
+    updated = {
+        **st.session_state.get("extracted", {}),
+        **ctx,
+    }
 
     priority = [
         "MANDANT_ANREDE",
         "MANDANT_VORNAME",
         "MANDANT_NACHNAME",
+        "MANDANT_VOLLNAME",
         "MANDANT_NAME",
+        "MANDANT_FIRMA",
         "MANDANT_STRASSE",
         "MANDANT_PLZ_ORT",
         "UNFALL_DATUM",
@@ -234,6 +289,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "KENNZEICHEN_MANDANT",
         "KENNZEICHEN_GEGNER",
         "KENNZEICHEN",
+        "EIGENES_KENNZEICHEN",
         "FAHRZEUGTYP",
         "VERSICHERUNG",
         "VER_STRASSE",
@@ -281,9 +337,15 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
 
     visible_keys = (
         set(keys)
-        | {k for k, v in ctx.items() if str(v).strip()}
+        | {k for k, v in updated.items() if str(v).strip()}
         | EXTRA_REVIEW_KEYS
     )
+
+    visible_keys = {
+        k for k in visible_keys
+        if k not in HIDDEN_REVIEW_KEYS
+        and not str(k).startswith("_")
+    }
 
     keys_sorted: List[str] = []
 
@@ -306,7 +368,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         widget_key = f"rev_{k}"
 
         if widget_key not in st.session_state:
-            st.session_state[widget_key] = "" if ctx.get(k) is None else str(ctx.get(k, ""))
+            st.session_state[widget_key] = "" if updated.get(k) is None else str(updated.get(k, ""))
 
         if k == "HINWEIS":
             with col:
@@ -380,21 +442,28 @@ if st.session_state["step"] == "extract":
             )
 
             template_keys = sorted(list(wb.get_template_vars(tpl_name)))
-            ctx = gs.build_context(set(template_keys), extracted)
+            word_ctx = gs.build_context(set(template_keys), extracted)
+
+            # Wichtig:
+            # ctx enthält alle Werte, nicht nur Word-Platzhalter.
+            full_ctx = {
+                **extracted,
+                **word_ctx,
+            }
 
             st.session_state["tpl_name"] = tpl_name
             st.session_state["out_prefix"] = out_prefix
             st.session_state["template_label"] = template_label
             st.session_state["template_keys"] = template_keys
-            st.session_state["ctx"] = ctx
+            st.session_state["ctx"] = full_ctx
             st.session_state["extracted"] = extracted
             st.session_state["debug_extracted"] = extracted
             st.session_state["reload_review_widgets"] = False
 
             clear_review_widget_state()
 
-            review_keys = get_review_keys(template_keys, ctx)
-            load_review_widget_state(review_keys, ctx)
+            review_keys = get_review_keys(template_keys, full_ctx)
+            load_review_widget_state(review_keys, full_ctx)
 
             go_review()
             st.rerun()
@@ -437,12 +506,17 @@ else:
             try:
                 template_keys = set(st.session_state["template_keys"])
 
-                ctx = gs.build_context(
+                word_ctx = gs.build_context(
                     template_keys,
                     st.session_state["extracted"],
                 )
 
-                st.session_state["ctx"] = ctx
+                full_ctx = {
+                    **st.session_state["extracted"],
+                    **word_ctx,
+                }
+
+                st.session_state["ctx"] = full_ctx
                 st.session_state["reload_review_widgets"] = True
                 st.rerun()
 
@@ -453,6 +527,7 @@ else:
         if st.button("🔄 Werte neu berechnen"):
             try:
                 recalc_review_values()
+                st.success("Werte wurden neu berechnet.")
                 st.rerun()
 
             except Exception as e:
@@ -462,23 +537,24 @@ else:
         if st.button("✅ Word endgültig erzeugen", type="primary"):
 
             try:
-                # WICHTIG:
                 # Direkt vor Word-Erstellung nochmal neu berechnen.
-                # So werden manuelle Änderungen sicher übernommen.
                 recalc_review_values()
 
-                ctx = st.session_state["ctx"]
+                template_keys = set(st.session_state["template_keys"])
+                extracted = st.session_state["extracted"]
+
+                word_ctx = gs.build_context(template_keys, extracted)
 
                 merged = {
-                    **st.session_state.get("extracted", {}),
-                    **ctx,
+                    **extracted,
+                    **word_ctx,
                 }
 
                 # ── 1. Normales Schreiben ─────────────────────────────────
                 try:
                     out_path = wb.render_word(
                         st.session_state["tpl_name"],
-                        ctx,
+                        word_ctx,
                         st.session_state["out_prefix"],
                     )
 
