@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import streamlit as st
 from typing import Dict, Any, List
+
+import streamlit as st
 
 import word_backend as wb
 import gutachten_service as gs
@@ -23,8 +24,6 @@ TEMPLATES = {
             "vorlage_schreibentotalschaden-1-express.docx",
             "schreibentotalschaden",
         ),
-
-        # NFZ-Varianten
         "Nutzfahrzeuge Standard": (
             "vorlage_schreiben-1-express.docx",
             "nfz_standard",
@@ -34,7 +33,6 @@ TEMPLATES = {
             "nfz_totalschaden",
         ),
     },
-
     "schnur": {
         "Standard Schreiben": (
             "vorlage_schreiben-1-schnur.docx",
@@ -45,7 +43,6 @@ TEMPLATES = {
             "schreibentotalschaden_schnur",
         ),
     },
-
     "stotko": {
         "Standard Schreiben": (
             "vorlage_schreiben-1-stotko.docx",
@@ -58,11 +55,32 @@ TEMPLATES = {
     },
 }
 
-
 GUTACHTER = {
     "GutachterExpress": "gutachterexpress",
     "Schnur": "schnur",
     "Stotko": "stotko",
+}
+
+
+EXTRA_REVIEW_KEYS = {
+    "SCHADENSNUMMER",
+    "HINWEIS",
+    "VORSTEUERABZUG_RAW",
+    "VORSTEUERBERECHTIGUNG",
+    "MANDANT_NAME",
+    "VER_STR",
+    "WBW",
+    "RESTWERT",
+    "WBW_BRUTTO",
+    "WBW_NETTO",
+    "RESTWERT_BRUTTO",
+    "RESTWERT_NETTO",
+    "GUTACHTERKOSTEN_NETTO",
+    "GUTACHTERKOSTEN_BRUTTO",
+    "MELDUNGSKOSTEN",
+    "KOSTENSUMME_TOTALSCHADEN",
+    "KOSTENSUMME_REPARATUR",
+    "KOSTENSUMME_X",
 }
 
 
@@ -80,10 +98,8 @@ def ensure_state() -> None:
     st.session_state.setdefault("extracted", {})
     st.session_state.setdefault("debug_extracted", {})
     st.session_state.setdefault("hinweis_button_clicked", False)
-
-    # NEU: Original-PDF speichern, damit handakte_backend.py
-    # daraus Telefon, E-Mail und IBAN aus den letzten Seiten lesen kann.
     st.session_state.setdefault("pdf_bytes", b"")
+    st.session_state.setdefault("reload_review_widgets", False)
 
 
 def clear_review_widget_state() -> None:
@@ -92,6 +108,14 @@ def clear_review_widget_state() -> None:
             del st.session_state[key]
 
     st.session_state["hinweis_button_clicked"] = False
+
+
+def get_review_keys(template_keys: List[str], ctx: Dict[str, Any]) -> List[str]:
+    return list(
+        set(template_keys)
+        | {k for k, v in ctx.items() if str(v).strip()}
+        | EXTRA_REVIEW_KEYS
+    )
 
 
 def load_review_widget_state(keys: List[str], ctx: Dict[str, Any]) -> None:
@@ -114,11 +138,75 @@ def go_extract(clear_all: bool = False) -> None:
         st.session_state["template_keys"] = []
         st.session_state["extracted"] = {}
         st.session_state["debug_extracted"] = {}
-
-        # NEU: gespeicherte PDF-Bytes löschen
         st.session_state["pdf_bytes"] = b""
-
+        st.session_state["reload_review_widgets"] = False
         clear_review_widget_state()
+
+
+# ---------------------------------------------------------------------------
+# Review / Neuberechnung
+# ---------------------------------------------------------------------------
+
+def collect_review_values() -> Dict[str, Any]:
+    """
+    Holt alle manuell bearbeiteten Review-Felder aus st.session_state.
+    """
+
+    edited_ctx = dict(st.session_state.get("ctx", {}))
+
+    for key in list(st.session_state.keys()):
+        if key.startswith("rev_"):
+            real_key = key.replace("rev_", "", 1)
+            edited_ctx[real_key] = st.session_state[key]
+
+    return edited_ctx
+
+
+def recalc_review_values() -> None:
+    """
+    Nimmt manuelle Änderungen aus dem Review,
+    rechnet Kosten/Summen neu
+    und aktualisiert ctx + extracted.
+    """
+
+    edited_ctx = collect_review_values()
+
+    merged = {
+        **st.session_state.get("extracted", {}),
+        **edited_ctx,
+    }
+
+    recalculated = gs.recalculate_after_manual_edit(merged)
+
+    template_keys = set(st.session_state.get("template_keys", []))
+    new_ctx = gs.build_context(template_keys, recalculated)
+
+    st.session_state["extracted"] = recalculated
+    st.session_state["debug_extracted"] = recalculated
+    st.session_state["ctx"] = new_ctx
+
+    # Widgets beim nächsten Rerun neu mit berechneten Werten laden
+    st.session_state["reload_review_widgets"] = True
+
+
+def reload_review_widgets_if_needed() -> None:
+    """
+    Lädt Review-Widgets neu, aber nur bevor sie gerendert werden.
+    Dadurch entstehen keine Streamlit-Session-State-Konflikte.
+    """
+
+    if not st.session_state.get("reload_review_widgets"):
+        return
+
+    ctx = st.session_state.get("ctx", {})
+    template_keys = st.session_state.get("template_keys", [])
+
+    clear_review_widget_state()
+
+    review_keys = get_review_keys(template_keys, ctx)
+    load_review_widget_state(review_keys, ctx)
+
+    st.session_state["reload_review_widgets"] = False
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +215,7 @@ def go_extract(clear_all: bool = False) -> None:
 
 def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     st.subheader("✅ Überprüfung - alle Werte editierbar")
-    st.caption("Passe Werte bei Bedarf an. Danach Word endgültig erzeugen.")
+    st.caption("Passe Werte bei Bedarf an. Danach Werte neu berechnen oder Word endgültig erzeugen.")
 
     updated = dict(ctx)
 
@@ -138,33 +226,35 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "MANDANT_NAME",
         "MANDANT_STRASSE",
         "MANDANT_PLZ_ORT",
-
         "UNFALL_DATUM",
         "UNFALL_ORT",
         "UNFALL_STRASSE",
-
         "AKTENZEICHEN",
         "SCHADENSNUMMER",
-
         "KENNZEICHEN_MANDANT",
         "KENNZEICHEN_GEGNER",
         "KENNZEICHEN",
-
         "FAHRZEUGTYP",
-
         "VERSICHERUNG",
         "VER_STRASSE",
         "VER_STR",
         "VER_ORT",
-
+        "VERSICHERUNGSNUMMER",
+        "VORSTEUERABZUG_RAW",
         "VORSTEUERBERECHTIGUNG",
-
+        "REPARATURKOSTEN_NETTO",
+        "REPARATURKOSTEN_BRUTTO",
         "REPARATURKOSTEN",
+        "REPARATURSCHADEN",
         "WERTMINDERUNG",
         "WERTVERBESSERUNG",
         "WBW",
+        "RESTWERT",
+        "WBW_BRUTTO",
+        "WBW_NETTO",
+        "RESTWERT_BRUTTO",
+        "RESTWERT_NETTO",
         "WIEDERBESCHAFFUNGSWERTAUFWAND",
-
         "MELDUNGSKOSTEN",
         "ZUSATZKOSTEN_BEZEICHNUNG1",
         "ZUSATZKOSTEN_BETRAG1",
@@ -172,19 +262,19 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
         "ZUSATZKOSTEN_BETRAG2",
         "ZUSATZKOSTEN_BEZEICHNUNG3",
         "ZUSATZKOSTEN_BETRAG3",
-
         "KOSTENPAUSCHALE",
+        "GUTACHTERKOSTEN_NETTO",
+        "GUTACHTERKOSTEN_BRUTTO",
         "GUTACHTERKOSTEN",
+        "KOSTENSUMME_REPARATUR",
+        "KOSTENSUMME_TOTALSCHADEN",
         "KOSTENSUMME_X",
-
         "GENDERN",
         "GENDERN1",
         "GENDERN2",
-
         "HEUTEDATUM",
         "HEUTDATUM",
         "FRIST_DATUM",
-
         "SCHADENHERGANG",
         "HINWEIS",
     ]
@@ -192,13 +282,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
     visible_keys = (
         set(keys)
         | {k for k, v in ctx.items() if str(v).strip()}
-        | {
-            "SCHADENSNUMMER",
-            "HINWEIS",
-            "VORSTEUERBERECHTIGUNG",
-            "MANDANT_NAME",
-            "VER_STR",
-        }
+        | EXTRA_REVIEW_KEYS
     )
 
     keys_sorted: List[str] = []
@@ -226,18 +310,10 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
 
         if k == "HINWEIS":
             with col:
-                if st.session_state["hinweis_button_clicked"]:
-                    st.markdown(
-                        "<div style='padding:6px;border-radius:6px;background:#d4edda;"
-                        "color:#155724;font-weight:bold;'>Hinweis eingefügt</div>",
-                        unsafe_allow_html=True,
-                    )
+                if str(st.session_state.get(widget_key, "")).strip():
+                    st.success("Hinweis eingefügt")
                 else:
-                    st.markdown(
-                        "<div style='padding:6px;border-radius:6px;background:#f8d7da;"
-                        "color:#721c24;font-weight:bold;'>Hinweis fehlt</div>",
-                        unsafe_allow_html=True,
-                    )
+                    st.warning("Hinweis fehlt")
 
                 if st.button("Hinweis einfügen", key="btn_hinweis"):
                     st.session_state[widget_key] = (
@@ -254,6 +330,7 @@ def render_review_form(keys: List[str], ctx: Dict[str, Any]) -> Dict[str, Any]:
 
         elif k in {"SCHADENHERGANG", "SONSTIGE"}:
             col.text_area(k, height=160, key=widget_key)
+
         else:
             col.text_input(k, key=widget_key)
 
@@ -276,9 +353,11 @@ gutachter_key = GUTACHTER[gutachter_label]
 
 available_templates = TEMPLATES[gutachter_key]
 template_label = st.selectbox("Vorlage wählen", list(available_templates.keys()))
+
 tpl_name, out_prefix = available_templates[template_label]
 
 pdf_file = st.file_uploader("Gutachten als PDF hochladen", type=["pdf"])
+
 show_debug = st.toggle("Debug anzeigen - extrahierte Werte", value=True)
 
 
@@ -287,11 +366,11 @@ show_debug = st.toggle("Debug anzeigen - extrahierte Werte", value=True)
 # ---------------------------------------------------------------------------
 
 if st.session_state["step"] == "extract":
-    if st.button("🔎 Werte aus PDF extrahieren", type="primary", disabled=(pdf_file is None)):
+
+    if st.button("Werte aus PDF extrahieren", type="primary", disabled=(pdf_file is None)):
         try:
             pdf_bytes = pdf_file.read()
 
-            # NEU: PDF-Bytes speichern für Handakte
             st.session_state["pdf_bytes"] = pdf_bytes
 
             extracted = gs.extract_from_pdf_bytes(
@@ -310,21 +389,11 @@ if st.session_state["step"] == "extract":
             st.session_state["ctx"] = ctx
             st.session_state["extracted"] = extracted
             st.session_state["debug_extracted"] = extracted
+            st.session_state["reload_review_widgets"] = False
 
             clear_review_widget_state()
 
-            review_keys = list(
-                set(template_keys)
-                | {k for k, v in ctx.items() if str(v).strip()}
-                | {
-                    "SCHADENSNUMMER",
-                    "HINWEIS",
-                    "VORSTEUERBERECHTIGUNG",
-                    "MANDANT_NAME",
-                    "VER_STR",
-                }
-            )
-
+            review_keys = get_review_keys(template_keys, ctx)
             load_review_widget_state(review_keys, ctx)
 
             go_review()
@@ -339,10 +408,12 @@ if st.session_state["step"] == "extract":
 # ---------------------------------------------------------------------------
 
 else:
+    reload_review_widgets_if_needed()
+
     st.subheader(f"Vorlage: {st.session_state['template_label']}")
 
     if show_debug:
-        with st.expander("🔎 Debug: Extrahierte Rohwerte", expanded=False):
+        with st.expander("Debug: Extrahierte / berechnete Werte", expanded=False):
             st.json(st.session_state.get("debug_extracted", {}))
 
     updated_ctx = render_review_form(
@@ -354,7 +425,7 @@ else:
 
     st.divider()
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
 
     with c1:
         if st.button("⬅️ Zurück - neu extrahieren"):
@@ -362,7 +433,7 @@ else:
             st.rerun()
 
     with c2:
-        if st.button("🔄 Review zurücksetzen"):
+        if st.button("Review zurücksetzen"):
             try:
                 template_keys = set(st.session_state["template_keys"])
 
@@ -372,108 +443,107 @@ else:
                 )
 
                 st.session_state["ctx"] = ctx
-
-                clear_review_widget_state()
-
-                review_keys = list(
-                    set(st.session_state["template_keys"])
-                    | {k for k, v in ctx.items() if str(v).strip()}
-                    | {
-                        "SCHADENSNUMMER",
-                        "HINWEIS",
-                        "VORSTEUERBERECHTIGUNG",
-                        "MANDANT_NAME",
-                        "VER_STR",
-                    }
-                )
-
-                load_review_widget_state(review_keys, ctx)
-
+                st.session_state["reload_review_widgets"] = True
                 st.rerun()
 
             except Exception as e:
                 st.error(f"❌ Fehler beim Zurücksetzen: {e}")
 
     with c3:
+        if st.button("🔄 Werte neu berechnen"):
+            try:
+                recalc_review_values()
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"❌ Fehler beim Neuberechnen: {e}")
+
+    with c4:
         if st.button("✅ Word endgültig erzeugen", type="primary"):
 
-            # Aktuelle Werte + Rohwerte zusammenführen.
-            # Manuelle Änderungen aus ctx haben Vorrang.
-            merged = {
-                **st.session_state.get("extracted", {}),
-                **st.session_state.get("ctx", {}),
-            }
-
-            # ── 1. Normales Schreiben ─────────────────────────────────────
             try:
-                out_path = wb.render_word(
-                    st.session_state["tpl_name"],
-                    st.session_state["ctx"],
-                    st.session_state["out_prefix"],
-                )
+                # WICHTIG:
+                # Direkt vor Word-Erstellung nochmal neu berechnen.
+                # So werden manuelle Änderungen sicher übernommen.
+                recalc_review_values()
 
-                st.success(f"✅ Schreiben erstellt: {out_path.name}")
+                ctx = st.session_state["ctx"]
 
-                with open(out_path, "rb") as f:
-                    st.download_button(
-                        "⬇️ Download Schreiben",
-                        data=f.read(),
-                        file_name=out_path.name,
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key="dl_schreiben",
+                merged = {
+                    **st.session_state.get("extracted", {}),
+                    **ctx,
+                }
+
+                # ── 1. Normales Schreiben ─────────────────────────────────
+                try:
+                    out_path = wb.render_word(
+                        st.session_state["tpl_name"],
+                        ctx,
+                        st.session_state["out_prefix"],
                     )
 
-            except Exception as e:
-                st.error(f"❌ Fehler beim normalen Schreiben: {e}")
+                    st.success(f"✅ Schreiben erstellt: {out_path.name}")
 
-            # ── 2. Mahnungsschreiben ──────────────────────────────────────
-            try:
-                mahnung_path = wm.render_mahnung(merged)
+                    with open(out_path, "rb") as f:
+                        st.download_button(
+                            "⬇️ Download Schreiben",
+                            data=f.read(),
+                            file_name=out_path.name,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key="dl_schreiben",
+                        )
 
-                st.success(f"✅ Mahnung erstellt: {mahnung_path.name}")
+                except Exception as e:
+                    st.error(f"❌ Fehler beim normalen Schreiben: {e}")
 
-                with open(mahnung_path, "rb") as f:
-                    st.download_button(
-                        "⬇️ Download Mahnung",
-                        data=f.read(),
-                        file_name=mahnung_path.name,
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key="dl_mahnung",
+                # ── 2. Mahnungsschreiben ──────────────────────────────────
+                try:
+                    mahnung_path = wm.render_mahnung(merged)
+
+                    st.success(f"✅ Mahnung erstellt: {mahnung_path.name}")
+
+                    with open(mahnung_path, "rb") as f:
+                        st.download_button(
+                            "⬇️ Download Mahnung",
+                            data=f.read(),
+                            file_name=mahnung_path.name,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key="dl_mahnung",
+                        )
+
+                except FileNotFoundError as e:
+                    st.warning(f"⚠️ Mahnung nicht erstellt: {e}")
+
+                except Exception as e:
+                    st.error(f"❌ Fehler bei Mahnung: {e}")
+
+                # ── 3. Handakte ───────────────────────────────────────────
+                try:
+                    handakte_path = hb.render_handakte_docx(
+                        data=merged,
+                        pdf_bytes=st.session_state.get("pdf_bytes", b""),
+                        template_path="handakte_gutachten.docx",
+                        output_dir="generated",
                     )
 
-            except FileNotFoundError as e:
-                st.warning(f"⚠️ Mahnung nicht erstellt: {e}")
+                    st.success(f"✅ Handakte erstellt: {handakte_path.name}")
+
+                    with open(handakte_path, "rb") as f:
+                        st.download_button(
+                            "⬇️ Download Handakte",
+                            data=f.read(),
+                            file_name=handakte_path.name,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key="dl_handakte",
+                        )
+
+                except FileNotFoundError as e:
+                    st.warning(f"⚠️ Handakte nicht erstellt: {e}")
+
+                except Exception as e:
+                    st.error(f"❌ Fehler bei Handakte: {e}")
+
+                st.caption(f"Gespeichert in: {wb.OUTPUT_DIR}")
+
             except Exception as e:
-                st.error(f"❌ Fehler bei Mahnung: {e}")
-
-            # ── 3. Handakte ───────────────────────────────────────────────
-            try:
-                handakte_path = hb.render_handakte_docx(
-                    data=merged,
-
-                    # NEU: PDF-Bytes an Handaktenmodul übergeben.
-                    # Dadurch kann handakte_backend.py Telefon, E-Mail und IBAN
-                    # aus den letzten PDF-Seiten extrahieren.
-                    pdf_bytes=st.session_state.get("pdf_bytes", b""),
-
-                    template_path="handakte_gutachten.docx",
-                    output_dir="generated",
-                )
-
-                st.success(f"✅ Handakte erstellt: {handakte_path.name}")
-
-                with open(handakte_path, "rb") as f:
-                    st.download_button(
-                        "⬇️ Download Handakte",
-                        data=f.read(),
-                        file_name=handakte_path.name,
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key="dl_handakte",
-                    )
-
-            except FileNotFoundError as e:
-                st.warning(f"⚠️ Handakte nicht erstellt: {e}")
-            except Exception as e:
-                st.error(f"❌ Fehler bei Handakte: {e}")
-
-            st.caption(f"Gespeichert in: {wb.OUTPUT_DIR}")
+                st.error(f"❌ Fehler bei Word-Erstellung: {e}")
